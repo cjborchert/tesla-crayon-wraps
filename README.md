@@ -14,6 +14,9 @@ Works in any modern browser on a phone, tablet or computer. Nothing to install, 
 
 Tesla publishes blank wrap templates for every model in [teslamotors/custom-wraps](https://github.com/teslamotors/custom-wraps). I printed one, and my child took it from there: rainbow doors, racing numbers, lightning bolts, and this cheetah/tiger, the favourite so far. Seeing their own drawing on the car's screen is the best part, and now every new drawing wants its turn.
 
+![A crayon drawing as a wrap in the car's Paint Shop: blue bonnet, yellow body and a rainbow-scribbled door](docs/on-the-car.jpg)
+<p align="center"><em>One of the drawings on the car's screen</em></p>
+
 Turning a crumpled, colourful sheet of paper into a clean wrap file by hand is fiddly, though. Kids (happily) colour over the lines, the photo is never quite straight, and the colours have to land on exactly the right panels. Crayon Wraps does all of that in about 10 seconds.
 
 ## How it works
@@ -71,7 +74,7 @@ GitHub Pages serves the repository root.
 ## Licence
 
 The code is free and unencumbered software released into the public domain ([The Unlicense](LICENSE)): use it, copy it, change it, share it.
-The example drawing and screenshots in `docs/` are not part of that dedication.
+The example drawing, the screenshots and the car photo in `docs/` are not part of that dedication.
 
 ---
 
