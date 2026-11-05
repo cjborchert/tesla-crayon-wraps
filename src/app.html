@@ -1,0 +1,597 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Crayon Wraps</title>
+<meta name="description" content="Turn a photo of a coloured-in Tesla wrap template into a custom wrap PNG for the car. Runs in your browser.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect x='14' y='4' width='36' height='56' rx='14' fill='%23e4572e'/%3E%3Crect x='20' y='16' width='24' height='12' rx='4' fill='%23fff' opacity='.85'/%3E%3Crect x='20' y='38' width='24' height='9' rx='3' fill='%23fff' opacity='.85'/%3E%3C/svg%3E">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-title" content="Crayon Wraps">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#f5f2ee" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#151413" media="(prefers-color-scheme: dark)">
+<style>
+:root {
+  --bg: #f5f2ee; --surface: #ffffff; --surface-2: #faf8f5; --text: #1d1b19; --muted: #6d6660;
+  --border: #e6e0d9; --accent: #e4572e; --accent-ink: #ffffff; --accent-soft: #fde9e2;
+  --ok: #2e8b57; --warn: #b7791f; --bad: #c0392b; --stage: #262321; --focus: #2f6fde;
+  --shadow: 0 1px 2px rgba(30,20,10,.05), 0 4px 16px rgba(30,20,10,.06);
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #151413; --surface: #1f1d1c; --surface-2: #252322; --text: #f2eee9; --muted: #a59e97;
+    --border: #35312e; --accent: #ff7650; --accent-ink: #1a0f0b; --accent-soft: #3a2119;
+    --ok: #5cc28a; --warn: #e3ac4a; --bad: #ff7b6b; --stage: #0f0e0d; --focus: #7aa7ff;
+    --shadow: 0 1px 2px rgba(0,0,0,.3), 0 4px 16px rgba(0,0,0,.25);
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #151413; --surface: #1f1d1c; --surface-2: #252322; --text: #f2eee9; --muted: #a59e97;
+  --border: #35312e; --accent: #ff7650; --accent-ink: #1a0f0b; --accent-soft: #3a2119;
+  --ok: #5cc28a; --warn: #e3ac4a; --bad: #ff7b6b; --stage: #0f0e0d; --focus: #7aa7ff;
+  --shadow: 0 1px 2px rgba(0,0,0,.3), 0 4px 16px rgba(0,0,0,.25);
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body {
+  background: var(--bg); color: var(--text);
+  font: 15px/1.45 -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased; min-height: 100vh; -webkit-text-size-adjust: 100%;
+}
+button, input, select { font: inherit; color: inherit; }
+:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+a { color: var(--accent); }
+.top { display: flex; align-items: center; gap: 14px; padding: 22px 28px 6px; max-width: 1280px; margin: 0 auto; }
+.logo { width: 40px; height: 40px; flex: none; }
+.top h1 { font-size: 21px; margin: 0; letter-spacing: -.01em; }
+.top p { margin: 0; color: var(--muted); font-size: 14px; }
+.layout { display: grid; grid-template-columns: 340px minmax(0, 1fr); gap: 20px; padding: 18px 28px 28px; max-width: 1280px; margin: 0 auto; align-items: start; }
+@media (max-width: 900px) { .layout { grid-template-columns: 1fr; padding: 12px 16px 24px; gap: 14px; } .top { padding: 16px 16px 2px; } .top p { font-size: 13.5px; } }
+.card { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; box-shadow: var(--shadow); padding: 18px; }
+.side, .maincol { display: grid; gap: 16px; min-width: 0; }
+@media (max-width: 900px) { .side, .maincol { gap: 14px; } }
+.card-h { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+.card-h h2 { font-size: 15px; margin: 0; }
+.num { width: 24px; height: 24px; border-radius: 50%; background: var(--accent-soft); color: var(--accent); font-weight: 700; font-size: 13px; display: grid; place-items: center; flex: none; }
+.num.done { background: var(--accent); color: var(--accent-ink); }
+.select { display: block; position: relative; }
+.select select { width: 100%; appearance: none; -webkit-appearance: none; border: 1px solid var(--border); border-radius: 10px; background: var(--surface-2); padding: 10px 36px 10px 12px; cursor: pointer; }
+.select::after { content: ""; position: absolute; right: 14px; top: 50%; width: 7px; height: 7px; border: 2px solid var(--muted); border-top: 0; border-left: 0; transform: translateY(-70%) rotate(45deg); pointer-events: none; }
+.drop { border: 1.5px dashed var(--border); border-radius: 12px; padding: 22px 16px; text-align: center; background: var(--surface-2); cursor: pointer; transition: border-color .15s, background .15s; }
+.drop:hover, .drop.over { border-color: var(--accent); background: var(--accent-soft); }
+.drop b { display: block; margin-bottom: 4px; }
+.drop small, .phone-btns small { display: block; color: var(--muted); margin-top: 8px; font-size: 13px; }
+.phone-btns { display: grid; gap: 10px; text-align: center; }
+.btn { border: 1px solid var(--border); background: var(--surface); border-radius: 9px; padding: 7px 13px; cursor: pointer; font-weight: 550; text-decoration: none; display: inline-flex; align-items: center; justify-content: center; gap: 8px; }
+.btn:hover { border-color: var(--muted); }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.btn.primary:hover { filter: brightness(1.05); }
+.btn:disabled { opacity: .45; cursor: not-allowed; filter: none; }
+.btn.link { border: none; background: none; padding: 4px 2px; color: var(--accent); font-size: 13.5px; }
+.btn.big { padding: 13px 16px; font-size: 16px; border-radius: 12px; }
+.btn svg { width: 20px; height: 20px; flex: none; }
+.tpl-set { display: flex; gap: 12px; align-items: center; margin-top: 12px; }
+.thumb { width: 84px; height: 84px; border-radius: 10px; border: 1px solid var(--border); flex: none; overflow: hidden;
+  background: repeating-conic-gradient(var(--surface-2) 0 25%, var(--border) 0 50%) 0 0 / 12px 12px; }
+.thumb img { width: 100%; height: 100%; object-fit: contain; display: block; }
+.meta { min-width: 0; flex: 1; display: grid; gap: 2px; }
+.meta b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.meta span { color: var(--muted); font-size: 13px; }
+.note { color: var(--muted); font-size: 13px; margin: 10px 0 0; }
+.note.bad { color: var(--bad); }
+.photo-set canvas { width: 100%; height: auto; border-radius: 10px; display: block; background: var(--stage); }
+.row { display: flex; gap: 8px; align-items: center; justify-content: space-between; margin-top: 10px; flex-wrap: wrap; }
+.row .btns { display: flex; gap: 8px; flex-wrap: wrap; }
+details.tips { margin-top: 14px; border-top: 1px solid var(--border); padding-top: 12px; }
+details.tips summary { cursor: pointer; font-weight: 600; font-size: 14px; }
+details.tips ul { margin: 10px 0 0; padding-left: 18px; color: var(--muted); font-size: 13.5px; }
+details.tips li { margin: 4px 0; }
+.main { min-height: 520px; display: flex; flex-direction: column; scroll-margin-top: 12px; }
+@media (max-width: 900px) { .main { min-height: 0; } }
+.idle { flex: 1; display: grid; place-items: center; text-align: center; color: var(--muted); padding: 40px 20px; }
+@media (max-width: 900px) { .idle { padding: 14px 10px; } .idle svg { width: 72px; height: 72px; } }
+.idle svg { width: 120px; height: 120px; margin-bottom: 12px; }
+.idle h3 { color: var(--text); margin: 0 0 4px; font-size: 17px; }
+.idle p { margin: 0; }
+.steps { list-style: none; margin: 30px auto; padding: 0; width: min(340px, 100%); }
+.steps li { display: flex; align-items: center; gap: 12px; padding: 9px 0; color: var(--muted); }
+.steps li .ic { width: 22px; height: 22px; border-radius: 50%; border: 2px solid var(--border); flex: none; display: grid; place-items: center; }
+.steps li.active { color: var(--text); font-weight: 600; }
+.steps li.active .ic { border-color: var(--accent); border-top-color: transparent; animation: spin .8s linear infinite; }
+.steps li.done { color: var(--text); }
+.steps li.done .ic { border-color: var(--ok); background: var(--ok); }
+.steps li.done .ic::after { content: ""; width: 9px; height: 5px; border: 2px solid #fff; border-top: 0; border-right: 0; transform: rotate(-45deg) translate(1px, -1px); }
+@keyframes spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .steps li.active .ic { animation: none; border-top-color: var(--accent); } }
+.working-t { text-align: center; color: var(--muted); font-size: 13px; }
+.error { margin: auto; max-width: 460px; text-align: center; padding: 40px 10px; }
+.error h3 { color: var(--bad); margin: 0 0 6px; }
+.error p { color: var(--muted); margin: 0 0 14px; }
+.views { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+@media (max-width: 640px) { .views { grid-template-columns: 1fr; } .views figure:first-child { order: 2; } }
+figure { margin: 0; }
+figcaption { display: flex; justify-content: space-between; align-items: center; font-weight: 600; font-size: 14px; margin-bottom: 8px; gap: 8px; }
+figcaption label { font-weight: 450; color: var(--muted); font-size: 13px; display: flex; gap: 6px; align-items: center; cursor: pointer; }
+.view { aspect-ratio: 1; border-radius: 12px; overflow: hidden; background: var(--stage); }
+.view canvas, .view img { width: 100%; height: 100%; display: block; object-fit: contain; }
+.checks { list-style: none; padding: 0; margin: 16px 0 0; display: flex; flex-wrap: wrap; gap: 8px; }
+.checks li { border: 1px solid var(--border); background: var(--surface-2); border-radius: 999px; padding: 5px 12px 5px 9px; font-size: 13px; display: flex; gap: 7px; align-items: center; }
+.dot { width: 9px; height: 9px; border-radius: 50%; background: var(--ok); flex: none; }
+.dot.warn { background: var(--warn); } .dot.bad { background: var(--bad); }
+.save { display: flex; gap: 10px; align-items: flex-end; flex-wrap: wrap; margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--border); }
+.save label { display: grid; gap: 4px; font-size: 13px; color: var(--muted); flex: 1; min-width: 220px; }
+.save .btns { display: flex; gap: 10px; flex-wrap: wrap; }
+@media (max-width: 640px) { .save .btns { width: 100%; } .save .btns .btn { flex: 1; } }
+.fname { display: flex; align-items: center; border: 1px solid var(--border); border-radius: 9px; background: var(--surface-2); padding: 0 10px; }
+.fname input { border: 0; background: transparent; padding: 8px 0; flex: 1; min-width: 0; outline: none; }
+.fname span { color: var(--muted); }
+.fname:focus-within { border-color: var(--focus); }
+.fname.invalid { border-color: var(--bad); }
+.save .btn { padding: 9px 18px; }
+.howto { color: var(--muted); font-size: 13px; margin: 12px 0 0; }
+.routes { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+@media (max-width: 640px) { .routes { grid-template-columns: 1fr; } }
+.route { background: var(--surface-2); border: 1px solid var(--border); border-radius: 12px; padding: 14px 16px; }
+.route h3 { font-size: 14px; margin: 0 0 8px; }
+.route ol { margin: 0; padding-left: 20px; font-size: 13.5px; }
+.route li { margin: 5px 0; }
+.route .limit { display: flex; gap: 8px; align-items: baseline; margin: 10px 0 0; font-size: 13px; color: var(--muted); }
+.route .limit .dot { background: var(--warn); transform: translateY(1px); }
+code { font: 12.5px ui-monospace, "SF Mono", Menlo, monospace; background: var(--accent-soft); color: var(--text); padding: 1px 5px; border-radius: 5px; }
+.foot { text-align: center; color: var(--muted); font-size: 12.5px; padding: 0 16px 28px; line-height: 1.6; }
+.nojs-note { max-width: 1280px; margin: 14px auto 0; padding: 0 28px; }
+.nojs-note div { background: var(--accent-soft); border: 1px solid var(--accent); border-radius: 12px; padding: 12px 16px; font-size: 14px; }
+@media (max-width: 900px) { .nojs-note { padding: 0 16px; } }
+.js .nojs-note { display: none; }
+/* phones and tablets: camera buttons instead of drag and drop, 16px inputs (no zoom on focus) */
+.touch-only { display: none !important; }
+.touch .touch-only { display: revert !important; }
+.touch .phone-btns.touch-only { display: grid !important; }
+.touch .btn.touch-only { display: inline-flex !important; }
+.touch .desk-only { display: none !important; }
+.touch select, .touch input { font-size: 16px; }
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+[hidden] { display: none !important; }
+</style>
+<script>
+  (function () {
+    var d = document.documentElement; d.classList.add("js");
+    var touch = window.matchMedia && matchMedia("(hover: none) and (pointer: coarse)").matches;
+    if (touch) d.classList.add("touch");
+  })();
+</script>
+</head>
+<body>
+<header class="top">
+  <svg class="logo" viewBox="0 0 64 64" aria-hidden="true">
+    <rect x="14" y="4" width="36" height="56" rx="14" fill="var(--accent)"/>
+    <rect x="20" y="16" width="24" height="12" rx="4" fill="#fff" opacity=".85"/>
+    <rect x="20" y="38" width="24" height="9" rx="3" fill="#fff" opacity=".85"/>
+  </svg>
+  <div>
+    <h1>Crayon Wraps</h1>
+    <p>Turn a photo of a coloured-in template into a wrap PNG for your Tesla.</p>
+  </div>
+</header>
+
+<div class="nojs-note" role="note"><div>
+  <b>Open Crayon Wraps in a web browser.</b> This preview can't run it.__SITE_LINE__
+</div></div>
+
+<main class="layout">
+  <div class="side">
+    <section class="card" aria-labelledby="h-tpl">
+      <div class="card-h"><span class="num" id="numTpl">1</span><h2 id="h-tpl">Your car</h2></div>
+      <label class="select"><span class="sr">Car model</span>
+        <select id="carSelect"><option value="" selected disabled>Choose your car…</option></select>
+      </label>
+      <p class="note" id="tplLoading" hidden>Loading the blank template from Tesla's GitHub…</p>
+      <div id="tplSet" hidden>
+        <div class="tpl-set">
+          <div class="thumb"><img id="tplImg" alt="Blank template"></div>
+          <div class="meta"><b id="tplName"></b><span id="tplInfo"></span><span id="tplSaved"></span></div>
+        </div>
+        <div class="row"><a class="btn link" id="tplPrint" target="_blank" rel="noopener">Blank template to print ↗</a></div>
+      </div>
+      <p class="note bad" id="tplError" hidden></p>
+    </section>
+
+    <section class="card" aria-labelledby="h-photo">
+      <div class="card-h"><span class="num" id="numPhoto">2</span><h2 id="h-photo">Photo of the drawing</h2></div>
+      <div id="photoEmpty">
+        <div id="photoDrop" class="drop desk-only" tabindex="0" role="button" aria-label="Choose a photo of the drawing">
+          <b>Add a photo</b>
+          Drop it here, paste it, or click to choose
+          <small>All four corners of the page in view. Any angle up to about 30° is fine.</small>
+        </div>
+        <div class="phone-btns touch-only">
+          <button class="btn primary big" id="takePhoto" type="button">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" aria-hidden="true"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg>
+            Take photo</button>
+          <button class="btn big" id="choosePhoto" type="button">Choose from photos</button>
+          <small>All four corners of the page in view. Any angle up to about 30° is fine.</small>
+        </div>
+      </div>
+      <div id="photoSet" class="photo-set" hidden>
+        <canvas id="photoCanvas" aria-label="Photo with the detected page outlined"></canvas>
+        <div class="row"><span class="note" id="photoName" style="margin:0"></span>
+          <div class="btns"><button class="btn touch-only" id="retake" type="button">Take another</button><button class="btn" id="photoReplace" type="button">Choose another…</button></div>
+        </div>
+      </div>
+      <details class="tips">
+        <summary>Photo tips</summary>
+        <ul>
+          <li>Lay the page flat on a surface that isn't white.</li>
+          <li>Fit the whole sheet in the frame with a little table around it.</li>
+          <li>Shooting at an angle to avoid glare is fine.</li>
+          <li>Colouring over the lines is fine: each panel only takes colour from inside its own outline.</li>
+        </ul>
+      </details>
+    </section>
+  </div>
+
+  <div class="maincol">
+    <section class="card main" id="mainCard" aria-live="polite">
+      <div id="idle" class="idle">
+        <div>
+          <svg viewBox="0 0 120 120" aria-hidden="true">
+            <rect x="34" y="12" width="52" height="96" rx="22" fill="none" stroke="var(--border)" stroke-width="4"/>
+            <rect x="44" y="34" width="32" height="18" rx="6" fill="var(--accent-soft)"/>
+            <rect x="44" y="68" width="32" height="14" rx="5" fill="var(--accent-soft)"/>
+            <path d="M18 56c6-5 10 5 16 0M86 64c6-5 10 5 16 0" stroke="var(--accent)" stroke-width="4" fill="none" stroke-linecap="round"/>
+          </svg>
+          <h3 id="idleTitle">Your wrap will appear here</h3>
+          <p id="idleText">Choose your car, then add a photo of a coloured-in page.</p>
+        </div>
+      </div>
+
+      <div id="working" hidden>
+        <ul class="steps" id="steps">
+          <li data-k="page"><span class="ic"></span>Finding the page</li>
+          <li data-k="align"><span class="ic"></span>Lining up the outline</li>
+          <li data-k="refine"><span class="ic"></span>Fine-tuning the fit</li>
+          <li data-k="fill"><span class="ic"></span>Colouring the panels</li>
+          <li data-k="save"><span class="ic"></span>Saving the PNG</li>
+        </ul>
+        <p class="working-t">Takes about 10 seconds, a bit longer on older phones. Everything happens on this device.</p>
+      </div>
+
+      <div id="error" class="error" hidden>
+        <h3 id="errTitle"></h3>
+        <p id="errText"></p>
+        <button class="btn" id="errRetry" type="button">Try another photo</button>
+      </div>
+
+      <div id="result" hidden>
+        <div class="views">
+          <figure>
+            <figcaption>Alignment check <label><input type="checkbox" id="showLines" checked> Show outline</label></figcaption>
+            <div class="view"><canvas id="checkCanvas" aria-label="Drawing lined up with the template outline"></canvas></div>
+          </figure>
+          <figure>
+            <figcaption>Wrap</figcaption>
+            <div class="view"><img id="wrapImg" alt="The finished wrap"></div>
+          </figure>
+        </div>
+        <ul class="checks" id="checks"></ul>
+        <div class="save">
+          <label for="fname">File name
+            <span class="fname" id="fnameBox"><input id="fname" maxlength="26" spellcheck="false" autocomplete="off" autocapitalize="off"><span>.png</span></span>
+          </label>
+          <div class="btns">
+            <button class="btn primary" id="share" type="button" hidden>Save or share</button>
+            <button class="btn primary" id="download" type="button">Download PNG</button>
+          </div>
+        </div>
+        <p class="note bad" id="fnameError" hidden>Use letters, numbers, spaces, dashes or underscores (up to 26 characters).</p>
+      </div>
+    </section>
+
+    <section class="card" aria-labelledby="h-car">
+      <div class="card-h"><span class="num">3</span><h2 id="h-car">Put it on the car</h2></div>
+      <div class="routes">
+        <div class="route">
+          <h3>With the Tesla app</h3>
+          <ol>
+            <li>Have the PNG on your phone: save it from Crayon Wraps, or AirDrop it from your computer.</li>
+            <li>In the Tesla app, go to <b>Creations → Wrap → Upload</b> and pick the file. This needs app version 4.59 or later.</li>
+          </ol>
+          <p class="limit"><span class="dot"></span><span>Storage is limited this way: the app holds up to 10 wraps. Add more with a USB flash drive.</span></p>
+        </div>
+        <div class="route">
+          <h3>With a USB flash drive</h3>
+          <ol>
+            <li>Use a drive formatted as exFAT or FAT32 (not NTFS), with no map or software update files on it.</li>
+            <li>Make a folder called <code>Wraps</code> at the top level and copy the PNGs into it (up to 10).</li>
+            <li>Plug the drive into the car.</li>
+          </ol>
+        </div>
+      </div>
+      <p class="howto">Then in the car: <b>Toybox → Paint Shop → Wraps</b>. More detailed instructions are in
+        <a href="https://github.com/teslamotors/custom-wraps" target="_blank" rel="noopener">Tesla's custom-wraps page on GitHub</a>.</p>
+    </section>
+  </div>
+</main>
+<p class="foot">Runs entirely in your browser: photos never leave your device.<br>
+  Blank templates come from <a href="https://github.com/teslamotors/custom-wraps" target="_blank" rel="noopener">teslamotors/custom-wraps</a>. Not affiliated with Tesla.__SOURCE_LINK__</p>
+
+<input type="file" id="tplInput" accept="image/png" hidden>
+<input type="file" id="photoInput" accept="image/*" hidden>
+<input type="file" id="cameraInput" accept="image/*" capture="environment" hidden>
+
+<script>
+/*__ENGINE__*/
+</script>
+<script>
+(() => {
+  "use strict";
+  const $ = (id) => document.getElementById(id);
+  const KEY = "crayonwraps.template.v1";
+  const TESLA_RAW = "https://raw.githubusercontent.com/teslamotors/custom-wraps/master/";
+  // Folder names in teslamotors/custom-wraps, grouped as on Tesla's page.
+  const CARS = [
+    ["Model Y", [["modely", "Model Y (2020–2024)"], ["modely-2025-base", "Model Y (2025+) Standard"], ["modely-2025-premium", "Model Y (2025+) Premium"],
+                 ["modely-2025-performance", "Model Y (2025+) Performance"], ["modely-l", "Model Y L"]]],
+    ["Model 3", [["model3", "Model 3 (2017–2023)"], ["model3-2024-base", "Model 3 (2024+) Standard & Premium"], ["model3-2024-performance", "Model 3 (2024+) Performance"]]],
+    ["Model S", [["models-2021", "Model S (2021+)"], ["models-2025-plaid", "Model S (2025+) Plaid"]]],
+    ["Model X", [["modelx-2021", "Model X (2021+)"]]],
+    ["Cybertruck", [["cybertruck", "Cybertruck"]]],
+  ];
+  const carName = (k) => { for (const [, cars] of CARS) for (const [f, n] of cars) if (f === k) return n; return null; };
+  const isTouch = document.documentElement.classList.contains("touch");
+  const state = { tpl: null, tplKey: "", photo: null, busy: false, result: null, url: null };
+
+  // ---------- storage (best effort) ----------
+  const store = {
+    get() { try { return JSON.parse(localStorage.getItem(KEY) || "null"); } catch { return null; } },
+    set(v) { try { localStorage.setItem(KEY, JSON.stringify(v)); return true; } catch { return false; } },
+  };
+
+  // ---------- image loading ----------
+  function loadImg(src) {
+    return new Promise((res, rej) => { const im = new Image(); im.onload = () => res(im); im.onerror = () => rej(new Error("decode")); im.src = src; });
+  }
+  async function templateImageData(dataUrl) {
+    const blob = await (await fetch(dataUrl)).blob();
+    let src;
+    try { src = await createImageBitmap(blob, { premultiplyAlpha: "none", colorSpaceConversion: "none" }); }
+    catch { src = await loadImg(dataUrl); }
+    const w = src.width, h = src.height, c = document.createElement("canvas");
+    c.width = w; c.height = h;
+    const g = c.getContext("2d", { willReadFrequently: true });
+    g.drawImage(src, 0, 0);
+    return g.getImageData(0, 0, w, h);
+  }
+  const readAsDataURL = (blob) => new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(r.result); r.onerror = rej; r.readAsDataURL(blob); });
+
+  // ---------- template ----------
+  function buildCarMenu() {
+    const sel = $("carSelect");
+    for (const [group, cars] of CARS) {
+      const og = document.createElement("optgroup"); og.label = group;
+      for (const [f, n] of cars) { const o = document.createElement("option"); o.value = f; o.textContent = n; og.append(o); }
+      sel.append(og);
+    }
+    const og = document.createElement("optgroup"); og.label = "Other";
+    const o = document.createElement("option"); o.value = "custom"; o.textContent = "My own template PNG…"; og.append(o);
+    sel.append(og);
+  }
+  async function setTemplate(key, name, dataUrl, persist) {
+    $("tplError").hidden = true;
+    let data;
+    try { data = await templateImageData(dataUrl); } catch { return tplError("That file couldn't be opened as an image."); }
+    if (data.width < 256 || data.height < 256) return tplError("That image is too small to be a wrap template.");
+    const tpl = WrapEngine.prepareTemplate(data);
+    if (tpl.problems.length) return tplError(tpl.problems[0] + " Use a blank wrap template PNG.");
+    state.tpl = tpl; state.tplKey = key; state.result = null;
+    $("carSelect").value = key;
+    $("tplImg").src = dataUrl;
+    $("tplName").textContent = name;
+    $("tplInfo").textContent = `${data.width} × ${data.height} px · ${tpl.panels.n} panels`;
+    const isTesla = key !== "custom";
+    $("tplPrint").hidden = !isTesla;
+    if (isTesla) $("tplPrint").href = TESLA_RAW + key + "/template.png";
+    let saved = true;
+    if (persist) saved = store.set({ key, name, dataUrl, savedAt: Date.now() });
+    $("tplSaved").textContent = saved ? "Remembered for next time" : "This browser won't remember it";
+    $("tplSet").hidden = false; $("numTpl").classList.add("done");
+    if (state.photo && !state.busy) process(); else showIdle();
+  }
+  function tplError(msg) { $("tplError").textContent = msg; $("tplError").hidden = false; $("carSelect").value = state.tplKey || ""; }
+  async function chooseCar(key) {
+    $("tplError").hidden = true;
+    if (key === "custom") { $("carSelect").value = state.tplKey || ""; return pick($("tplInput")); }
+    $("tplLoading").hidden = false; $("carSelect").disabled = true;
+    try {
+      const res = await fetch(TESLA_RAW + key + "/template.png", { cache: "no-cache" });
+      if (!res.ok) throw new Error(res.status);
+      await setTemplate(key, carName(key), await readAsDataURL(await res.blob()), true);
+    } catch {
+      tplError("Couldn't load that template from Tesla's GitHub. Check the internet connection and try again.");
+    } finally { $("tplLoading").hidden = true; $("carSelect").disabled = false; }
+  }
+  async function onTemplateFile(file) {
+    if (!file) return;
+    if (!/png$/i.test(file.type) && !/\.png$/i.test(file.name)) return tplError("The template needs to be a PNG file.");
+    setTemplate("custom", file.name, await readAsDataURL(file), true);
+  }
+
+  // ---------- photo ----------
+  async function onPhotoFile(file) {
+    if (!file || state.busy) return;
+    const url = URL.createObjectURL(file);
+    let im;
+    try { im = await loadImg(url); }
+    catch {
+      URL.revokeObjectURL(url);
+      const heic = /hei[cf]$/i.test(file.name) || /hei[cf]/i.test(file.type);
+      return showError("That photo couldn't be opened",
+        heic ? "This browser can't read HEIC photos. Use Safari, or export the photo as JPEG first." : "Try a JPEG or PNG photo.");
+    }
+    // normalise size: the longest side becomes 2016 px (what the processing is tuned for)
+    const s = 2016 / Math.max(im.naturalWidth, im.naturalHeight);
+    const w = Math.round(im.naturalWidth * s), h = Math.round(im.naturalHeight * s);
+    const c = document.createElement("canvas"); c.width = w; c.height = h;
+    const g = c.getContext("2d", { willReadFrequently: true });
+    g.imageSmoothingEnabled = true; g.imageSmoothingQuality = "high";
+    g.drawImage(im, 0, 0, w, h);
+    URL.revokeObjectURL(url);
+    state.photo = { name: file.name && !/^image\.\w+$/i.test(file.name) ? file.name : "Photo", canvas: c, img: { w, h, data: g.getImageData(0, 0, w, h).data } };
+    state.result = null;
+    drawPhoto(null);
+    $("photoName").textContent = state.photo.name;
+    $("photoEmpty").hidden = true; $("photoSet").hidden = false; $("numPhoto").classList.add("done");
+    if (state.tpl) process(); else showIdle();
+  }
+  function drawPhoto(corners) {
+    const src = state.photo.canvas, cv = $("photoCanvas"), s = Math.min(1, 640 / Math.max(src.width, src.height));
+    cv.width = Math.round(src.width * s); cv.height = Math.round(src.height * s);
+    const g = cv.getContext("2d");
+    g.drawImage(src, 0, 0, cv.width, cv.height);
+    if (corners) {
+      g.lineWidth = 3; g.strokeStyle = getComputedStyle(document.documentElement).getPropertyValue("--accent").trim() || "#e4572e";
+      g.beginPath(); corners.forEach(([x, y], i) => (i ? g.lineTo(x * s, y * s) : g.moveTo(x * s, y * s))); g.closePath(); g.stroke();
+    }
+  }
+
+  // ---------- views ----------
+  const panels = ["idle", "working", "error", "result"];
+  const show = (id) => panels.forEach((p) => ($(p).hidden = p !== id));
+  const narrow = () => window.matchMedia("(max-width: 900px)").matches;
+  const reveal = () => { if (narrow()) $("mainCard").scrollIntoView({ behavior: "smooth", block: "start" }); };
+  function showIdle() {
+    if (state.result) return show("result");
+    $("idleTitle").textContent = "Your wrap will appear here";
+    $("idleText").textContent = !state.tpl ? "Start by choosing your car." : "Now add a photo of a coloured-in page.";
+    show("idle");
+  }
+  function showError(title, text) { $("errTitle").textContent = title; $("errText").textContent = text; show("error"); reveal(); }
+  function setStep(k) {
+    let seen = false;
+    document.querySelectorAll("#steps li").forEach((li) => {
+      li.classList.remove("active", "done");
+      if (li.dataset.k === k) { li.classList.add("active"); seen = true; } else if (!seen) li.classList.add("done");
+    });
+  }
+
+  // ---------- run ----------
+  async function process() {
+    if (state.busy || !state.tpl || !state.photo) return;
+    state.busy = true; state.result = null;
+    show("working"); setStep("page"); reveal();
+    const t0 = performance.now();
+    try {
+      const r = await WrapEngine.run(state.photo.img, state.tpl, setStep);
+      r.seconds = (performance.now() - t0) / 1000;
+      state.result = r; window.__lastResult = r;
+      drawPhoto(r.page.corners);
+      renderResult(r);
+    } catch (e) {
+      console.error(e);
+      if (e.message === "NO_PAGE") showError("Couldn't find the page", "Make sure all four corners of the sheet are in the photo, with some of the table showing around it.");
+      else if (e.message === "NO_MATCH") showError("Couldn't match the template", "The page was found, but its printed outline doesn't match the car chosen in step 1. Is the right car selected?");
+      else showError("Something went wrong", "Try the photo again, or take a new one.");
+    } finally { state.busy = false; }
+  }
+  function renderResult(r) {
+    const cv = $("checkCanvas"); cv.width = r.w; cv.height = r.h; drawCheck();
+    $("checkCanvas").parentElement.style.aspectRatio = `${r.w} / ${r.h}`;
+    $("wrapImg").parentElement.style.aspectRatio = `${r.w} / ${r.h}`;
+    if (state.url) URL.revokeObjectURL(state.url);
+    state.url = URL.createObjectURL(new Blob([r.png], { type: "image/png" }));
+    $("wrapImg").src = state.url;
+    const kb = Math.round(r.png.length / 1000), q = Math.round(r.quality * 100);
+    const items = [
+      ["ok", "PNG"],
+      ["ok", `${r.w} × ${r.h} px`],
+      [r.png.length < 1000000 ? "ok" : "bad", `${kb} KB (limit 1 MB)`],
+      [q >= 90 ? "ok" : q >= 80 ? "warn" : "bad", q >= 80 ? `Outline match ${q}%` : `Outline match ${q}%: check the alignment`],
+    ];
+    $("checks").innerHTML = "";
+    for (const [cls, text] of items) {
+      const li = document.createElement("li"); const d = document.createElement("span");
+      d.className = "dot" + (cls === "ok" ? "" : " " + cls); li.append(d, document.createTextNode(text)); $("checks").append(li);
+    }
+    const now = new Date(), p = (n) => String(n).padStart(2, "0");
+    $("fname").value = `Wrap ${now.getFullYear()}-${p(now.getMonth() + 1)}-${p(now.getDate())} ${p(now.getHours())}${p(now.getMinutes())}${p(now.getSeconds())}`;
+    // phones: the share sheet saves to Photos or Files; computers: a normal download
+    const canShare = isTouch && !!navigator.canShare && navigator.canShare({ files: [new File([r.png], "wrap.png", { type: "image/png" })] });
+    $("share").hidden = !canShare;
+    $("download").classList.toggle("primary", !canShare);
+    $("download").textContent = canShare ? "Download" : "Download PNG";
+    validateName();
+    show("result"); reveal();
+  }
+  function drawCheck() {
+    const r = state.result; if (!r) return;
+    $("checkCanvas").getContext("2d").putImageData(new ImageData($("showLines").checked ? r.check : r.plain, r.w, r.h), 0, 0);
+  }
+  const NAME_RE = /^[A-Za-z0-9 _-]{1,26}$/;
+  function validateName() {
+    const ok = NAME_RE.test($("fname").value.trim());
+    $("fnameBox").classList.toggle("invalid", !ok); $("fnameError").hidden = ok;
+    $("download").disabled = !ok; $("share").disabled = !ok;
+    return ok;
+  }
+  const fileName = () => $("fname").value.trim() + ".png";
+  function download() {
+    if (!state.result || !validateName()) return;
+    const a = document.createElement("a");
+    a.href = state.url; a.download = fileName();
+    document.body.append(a); a.click(); a.remove();
+  }
+  async function share() {
+    if (!state.result || !validateName()) return;
+    const file = new File([state.result.png], fileName(), { type: "image/png" });
+    try { await navigator.share({ files: [file] }); }
+    catch (e) { if (e && e.name !== "AbortError") download(); }
+  }
+
+  // ---------- wiring ----------
+  const pick = (input) => { input.value = ""; input.click(); };
+  buildCarMenu();
+  $("carSelect").onchange = (e) => chooseCar(e.target.value);
+  $("photoDrop").onclick = () => pick($("photoInput"));
+  $("photoDrop").onkeydown = (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); pick($("photoInput")); } };
+  $("takePhoto").onclick = () => pick($("cameraInput"));
+  $("retake").onclick = () => pick($("cameraInput"));
+  $("choosePhoto").onclick = () => pick($("photoInput"));
+  $("photoReplace").onclick = () => pick($("photoInput"));
+  $("errRetry").onclick = () => pick(isTouch ? $("cameraInput") : $("photoInput"));
+  $("tplInput").onchange = (e) => onTemplateFile(e.target.files[0]);
+  $("photoInput").onchange = (e) => onPhotoFile(e.target.files[0]);
+  $("cameraInput").onchange = (e) => onPhotoFile(e.target.files[0]);
+  $("showLines").onchange = drawCheck;
+  $("fname").oninput = validateName;
+  $("fname").onkeydown = (e) => { if (e.key === "Enter") ($("share").hidden ? download : share)(); };
+  $("download").onclick = download;
+  $("share").onclick = share;
+
+  const dz = $("photoDrop");
+  dz.addEventListener("dragover", (e) => { e.preventDefault(); e.stopPropagation(); dz.classList.add("over"); });
+  dz.addEventListener("dragleave", () => dz.classList.remove("over"));
+  dz.addEventListener("drop", (e) => { e.preventDefault(); e.stopPropagation(); dz.classList.remove("over"); onPhotoFile(e.dataTransfer.files[0]); });
+  // dropping anywhere: a template-looking PNG when no car is chosen yet, otherwise a photo
+  window.addEventListener("dragover", (e) => e.preventDefault());
+  window.addEventListener("drop", (e) => { e.preventDefault(); const f = e.dataTransfer.files[0]; if (!f) return; (!state.tpl && /png$/i.test(f.type)) ? onTemplateFile(f) : onPhotoFile(f); });
+  window.addEventListener("paste", (e) => {
+    const item = [...(e.clipboardData?.items || [])].find((i) => i.type.startsWith("image/"));
+    if (item && document.activeElement !== $("fname")) { e.preventDefault(); onPhotoFile(item.getAsFile()); }
+  });
+
+  // ---------- start ----------
+  const saved = store.get();
+  if (saved && saved.dataUrl) setTemplate(saved.key || "custom", saved.name || "Template", saved.dataUrl, false);
+  else showIdle();
+  // works offline once visited (only when served from a website, not from a file)
+  if ("serviceWorker" in navigator && /^https?:$/.test(location.protocol)) navigator.serviceWorker.register("sw.js").catch(() => {});
+})();
+</script>
+</body>
+</html>
