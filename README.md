@@ -12,7 +12,7 @@ Works in any modern browser on a phone, tablet or computer. Nothing to install, 
 
 ## Why this exists
 
-Tesla publishes blank wrap templates for every model in [teslamotors/custom-wraps](https://github.com/teslamotors/custom-wraps). I printed one, and my child took it from there: rainbow doors, racing numbers, lightning bolts, and this cheetah/tiger, the favourite so far. Seeing their own drawing on the car's screen is the best part, and now every new drawing wants its turn.
+Tesla publishes blank wrap templates for every model in [teslamotors/custom-wraps](https://github.com/teslamotors/custom-wraps). I printed one, and my child took it from there: rainbow doors, racing numbers, lightning bolts, and this cheetah/tiger, the favourite so far. Seeing their own drawing on the car's screen is the best part, so now every new drawing has to go on the car too.
 
 ![A crayon drawing as a wrap in the car's Paint Shop: blue bonnet, yellow body and a rainbow-scribbled door](docs/on-the-car.jpg)
 <p align="center"><em>One of the drawings on the car's screen</em></p>
