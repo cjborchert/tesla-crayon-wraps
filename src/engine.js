@@ -864,10 +864,18 @@ const WrapEngine = (() => {
     const cx = tpl.w / 2, cy = tpl.h / 2, nFit = Math.min(4000, tpl.nLines);
     let st;
     if (opts.start) {
-      // hand-placed outline: settle it with a wide capture range first
-      const o = opts.start;
-      const r0 = minimize((x) => costH(simH(o.k, x[0], x[1], x[2], x[3], cx, cy), tpl.linePts, nFit, L1, 30),
-        [o.s, o.tx, o.ty, o.th || 0], [0.03 * o.s, 12, 12, 0.02]);
+      // hand-placed outline is only roughly right: search around it (about 7% of the page in each
+      // direction, +/-12% in size) before the fine-tuning
+      const o = opts.start, th0 = o.th || 0, n0 = Math.min(400, tpl.nLines);
+      const reach = 0.07 * Math.max(page.W, page.H);
+      let best = { c: Infinity };
+      for (let ds = -0.12; ds <= 0.1201; ds += 0.03) for (let dx = -reach; dx <= reach; dx += 8) for (let dy = -reach; dy <= reach; dy += 8) {
+        const s1 = o.s * (1 + ds), c = costH(simH(o.k, s1, o.tx + dx, o.ty + dy, th0, cx, cy), tpl.linePts, n0, L1, 25);
+        if (c < best.c) best = { c, s: s1, tx: o.tx + dx, ty: o.ty + dy };
+      }
+      await tick();
+      const r0 = minimize((x) => costH(simH(o.k, x[0], x[1], x[2], x[3], cx, cy), tpl.linePts, nFit, L1, 25),
+        [best.s, best.tx, best.ty, th0], [0.01 * best.s, 4, 4, 0.01]);
       st = { k: o.k, s: r0.x[0], tx: r0.x[1], ty: r0.x[2], th: r0.x[3] };
     } else {
       const coarse = await coarseSearch(L1, tpl);
