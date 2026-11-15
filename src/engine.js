@@ -330,53 +330,131 @@ const WrapEngine = (() => {
     return ids.slice(0, top).map((l) => { const f = fillComponent(cc, l, w, h); return { l, area: f.area, mask: f.mask }; })
       .sort((a, b) => b.area - a.area);
   }
+  // True width/height of a rectangle photographed in perspective (Zhang & He, "whiteboard scanning"),
+  // assuming the optical centre is the middle of the photo. Falls back to the measured side lengths.
+  function pageAspect(tl, tr, br, bl, w, h) {
+    const P = (p) => [p[0] - w / 2, p[1] - h / 2, 1];
+    const m1 = P(tl), m2 = P(tr), m3 = P(bl), m4 = P(br);
+    const cross = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+    const dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+    const dist = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1]);
+    const measured = (dist(tl, tr) + dist(bl, br)) / (dist(tl, bl) + dist(tr, br));
+    const c14 = cross(m1, m4);
+    const k2 = dot(c14, m3) / dot(cross(m2, m4), m3), k3 = dot(c14, m2) / dot(cross(m3, m4), m2);
+    const n2 = m2.map((v, i) => k2 * v - m1[i]), n3 = m3.map((v, i) => k3 * v - m1[i]);
+    const den = n2[2] * n3[2], diag = Math.hypot(w, h);
+    if (Math.abs(den) > 1e-9) {
+      const f2 = -(n2[0] * n3[0] + n2[1] * n3[1]) / den;
+      if (f2 > (0.3 * diag) ** 2 && f2 < (5 * diag) ** 2) {
+        const r = Math.sqrt((n2[0] ** 2 + n2[1] ** 2 + f2 * n2[2] ** 2) / (n3[0] ** 2 + n3[1] ** 2 + f2 * n3[2] ** 2));
+        if (isFinite(r) && Math.abs(Math.log(r / measured)) < 0.4) return r;
+      }
+    }
+    return measured;
+  }
+  // Page geometry from four corner points (any order) in photo pixels.
+  function makePage(q, img) {
+    const sum = q.map((p) => p[0] + p[1]), dif = q.map((p) => p[1] - p[0]);
+    const am = (arr, f) => arr.indexOf(f(...arr));
+    const tl = q[am(sum, Math.min)], br = q[am(sum, Math.max)], tr = q[am(dif, Math.min)], bl = q[am(dif, Math.max)];
+    if (new Set([tl, tr, br, bl]).size < 4) return null;
+    const asp = Math.min(3, Math.max(1 / 3, pageAspect(tl, tr, br, bl, img.w, img.h)));
+    const landscape = asp > 1;
+    const W = landscape ? 2339 : Math.round(2339 * asp), H = landscape ? Math.round(2339 / asp) : 2339; // ~200 dpi
+    const corners = [tl, tr, br, bl];
+    const areaFrac = (triArea(tl, tr, br) + triArea(br, bl, tl)) / (img.w * img.h);
+    const Pinv = homographyFrom4([[0, 0], [W - 1, 0], [W - 1, H - 1], [0, H - 1]], corners);
+    if (!Pinv) return null;
+    return { corners, W, H, landscape, Pinv, areaFrac, ratio: Math.max(asp, 1 / asp) };
+  }
   // Finds the sheet of paper. Works on a 4x reduced copy (kernel sizes tuned for a 2016 px photo).
   function findPage(img) {
     const F = 4, sw = Math.floor(img.w / F), sh = Math.floor(img.h / F), N = sw * sh, D = img.data;
+    // The page is white, but the light may tint it (blue daylight, yellow lamps). The brightest quarter of
+    // the photo is mostly paper, so its typical colour is taken as "white" and the photo is balanced to it.
+    const hv = new Float64Array(256);
+    for (let p = 0; p < D.length; p += 16) hv[Math.max(D[p], D[p + 1], D[p + 2])]++;
+    let tot = 0; for (let v = 0; v < 256; v++) tot += hv[v];
+    let thrV = 255; for (let v = 255, acc = 0; v >= 0; v--) { acc += hv[v]; if (acc >= 0.25 * tot) { thrV = v; break; } }
+    const hc = [new Float64Array(256), new Float64Array(256), new Float64Array(256)]; let nW = 0;
+    for (let p = 0; p < D.length; p += 16) if (Math.max(D[p], D[p + 1], D[p + 2]) >= thrV) { hc[0][D[p]]++; hc[1][D[p + 1]]++; hc[2][D[p + 2]]++; nW++; }
+    const med = (h) => { for (let v = 0, acc = 0; v < 256; v++) { acc += h[v]; if (acc >= nW / 2) return Math.max(v, 1); } return 255; };
+    const white = [med(hc[0]), med(hc[1]), med(hc[2])], wMax = Math.max(...white);
+    const gain = white.map((c) => Math.min(2, wMax / c));
     const V = new Float32Array(N), S = new Float32Array(N);
     for (let y = 0; y < sh; y++) for (let x = 0; x < sw; x++) {
       let sv = 0, ss = 0;
       for (let dy = 0; dy < F; dy++) for (let dx = 0; dx < F; dx++) {
-        const p = ((y * F + dy) * img.w + x * F + dx) * 4, r = D[p], g = D[p + 1], b = D[p + 2];
+        const p = ((y * F + dy) * img.w + x * F + dx) * 4;
+        const r = Math.min(255, D[p] * gain[0]), g = Math.min(255, D[p + 1] * gain[1]), b = Math.min(255, D[p + 2] * gain[2]);
         const mx = Math.max(r, g, b), mn = Math.min(r, g, b);
         sv += mx; ss += mx ? (255 * (mx - mn)) / mx : 0;
       }
       V[y * sw + x] = sv / (F * F); S[y * sw + x] = ss / (F * F);
     }
     const vb = median5(V, sw, sh), sb = median5(S, sw, sh);
-    // paper: bright & unsaturated; or (in shadow) slightly darker but still unsaturated
-    let m = new Uint8Array(N);
-    for (let i = 0; i < N; i++) m[i] = ((vb[i] > 185 && sb[i] < 60) || (sb[i] < 45 && vb[i] > 165)) ? 1 : 0;
-    m = toMask(closeOp(m, sw, sh, 3));
-    let cc = labelCC(m, sw, sh, true);
-    if (!cc.n) return null;
-    let big = largestByEnclosedArea(cc, sw, sh);
-    // heavy colouring can split the white margin into two pieces: join them
-    if (big.length > 1 && big[1].area > 0.15 * big[0].area) {
-      const pts = rowExtremes(cc.lab, sw, sh, (v) => v === big[0].l || v === big[1].l);
-      fillConvex(m, sw, sh, convexHull(pts));
-      cc = labelCC(m, sw, sh, true);
-      big = largestByEnclosedArea(cc, sw, sh);
+    function pageFromMask(m0) {
+      let m;
+      m = toMask(closeOp(m0, sw, sh, 3));
+      let cc = labelCC(m, sw, sh, true);
+      if (!cc.n) return null;
+      let big = largestByEnclosedArea(cc, sw, sh);
+      // heavy colouring can split the white margin into two pieces: join them
+      if (big.length > 1 && big[1].area > 0.15 * big[0].area) {
+        const pts = rowExtremes(cc.lab, sw, sh, (v) => v === big[0].l || v === big[1].l);
+        fillConvex(m, sw, sh, convexHull(pts));
+        cc = labelCC(m, sw, sh, true);
+        big = largestByEnclosedArea(cc, sw, sh);
+      }
+      let filled = toMask(openOp(big[0].mask, sw, sh, 4));
+      cc = labelCC(filled, sw, sh, true);
+      if (!cc.n) return null;
+      big = largestByEnclosedArea(cc, sw, sh, 3);
+      const hull = convexHull(rowExtremes(cc.lab, sw, sh, (v) => v === big[0].l));
+      const quad = maxAreaQuad(hull);
+      if (!quad) return null;
+      const q = quad.map(([x, y]) => [x * F + (F - 1) / 2, y * F + (F - 1) / 2]);
+      return makePage(q, img);
     }
-    let filled = toMask(openOp(big[0].mask, sw, sh, 4));
-    cc = labelCC(filled, sw, sh, true);
-    if (!cc.n) return null;
-    big = largestByEnclosedArea(cc, sw, sh, 3);
-    const hull = convexHull(rowExtremes(cc.lab, sw, sh, (v) => v === big[0].l));
-    const quad = maxAreaQuad(hull);
-    if (!quad) return null;
-    const q = quad.map(([x, y]) => [x * F + (F - 1) / 2, y * F + (F - 1) / 2]);
-    const sum = q.map((p) => p[0] + p[1]), dif = q.map((p) => p[1] - p[0]);
-    const am = (arr, f) => arr.indexOf(f(...arr));
-    const tl = q[am(sum, Math.min)], br = q[am(sum, Math.max)], tr = q[am(dif, Math.min)], bl = q[am(dif, Math.max)];
-    const dist = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1]);
-    const landscape = (dist(tl, tr) + dist(bl, br)) / 2 > (dist(tl, bl) + dist(tr, br)) / 2;
-    const W = landscape ? 2339 : 1654, H = landscape ? 1654 : 2339; // A4 at ~200 dpi
-    const corners = [tl, tr, br, bl];
-    const areaFrac = (triArea(tl, tr, br) + triArea(br, bl, tl)) / (img.w * img.h);
-    const Pinv = homographyFrom4([[0, 0], [W - 1, 0], [W - 1, H - 1], [0, H - 1]], corners);
-    if (!Pinv) return null;
-    return { corners, W, H, landscape, Pinv, areaFrac };
+    // Does the found shape look like white paper? Its whitest parts must be close to white (after the white
+    // balance) and clearly whiter than what's around it. Drawings cover part of the page, so the whitest
+    // quarter inside is compared with the typical surroundings.
+    function looksLikePaper(r) {
+      const inside = new Uint8Array(N);
+      fillConvex(inside, sw, sh, r.corners.map(([x, y]) => [(x - (F - 1) / 2) / F, (y - (F - 1) / 2) / F]));
+      const sIn = [], sOut = [], satIn = [];
+      for (let i = 0; i < N; i += 2) { const sc = vb[i] - sb[i]; if (inside[i]) { sIn.push(sc); satIn.push(sb[i]); } else sOut.push(sc); }
+      if (sIn.length < 50) return false;
+      const pct = (a, q) => { a.sort((x, y) => x - y); return a[Math.min(a.length - 1, Math.floor(q * a.length))]; };
+      const whiteIn = pct(sIn, 0.75), paperSat = pct(satIn, 0.25);
+      if (whiteIn < 120 || paperSat > 70) return false;
+      return sOut.length < 0.05 * N || whiteIn > pct(sOut, 0.5) + 25;
+    }
+    // A sheet of paper of any proportions, taking up a decent share of the photo
+    const plausible = (r) => r && r.areaFrac >= 0.2 && r.ratio <= 3 && looksLikePaper(r);
+    // 1) paper is bright and unsaturated, or (in shadow) slightly darker but still unsaturated
+    const mA = new Uint8Array(N);
+    for (let i = 0; i < N; i++) mA[i] = ((vb[i] > 185 && sb[i] < 60) || (sb[i] < 45 && vb[i] > 165)) ? 1 : 0;
+    const a = pageFromMask(mA);
+    if (plausible(a) && a.areaFrac >= 0.35) return a;
+    // 2) tinted light (e.g. blue-ish daylight) on a light surface such as wood: paper is simply
+    //    the "whitest" thing in the photo, so split brightness-minus-saturation automatically (Otsu)
+    const hist = new Float64Array(256), score = new Float32Array(N);
+    for (let i = 0; i < N; i++) { score[i] = vb[i] - sb[i]; hist[Math.max(0, Math.min(255, Math.round((score[i] + 255) / 2)))]++; }
+    let sumAll = 0; for (let k = 0; k < 256; k++) sumAll += k * hist[k];
+    let wB = 0, sumB = 0, best = -1, thr = 128;
+    for (let k = 0; k < 256; k++) {
+      wB += hist[k]; if (!wB) continue; const wF = N - wB; if (!wF) break;
+      sumB += k * hist[k]; const mB = sumB / wB, mF = (sumAll - sumB) / wF, between = wB * wF * (mB - mF) ** 2;
+      if (between > best) { best = between; thr = k; }
+    }
+    const mB2 = new Uint8Array(N), t = thr * 2 - 255;
+    for (let i = 0; i < N; i++) mB2[i] = score[i] > t ? 1 : 0;
+    const b = pageFromMask(mB2);
+    if (plausible(b) && (!a || b.areaFrac > 1.5 * a.areaFrac)) return b;
+    if (plausible(a)) return a;
+    if (plausible(b)) return b;
+    return null;
   }
   function flatV(img, Pinv, W, H) {
     const V = new Float32Array(W * H), px = [0, 0, 0];
@@ -449,9 +527,9 @@ const WrapEngine = (() => {
     // level 1: sparse grid with a subset of outline points; keep the best candidates
     const n1 = Math.min(250, n), cands = [];
     for (let k = 0; k < 4; k++) {
-      for (let sr = 0.62; sr < 1.09; sr += 0.031) {
+      for (let sr = 0.45; sr < 1.09; sr += 0.031) {
         const s = sr * sFitK(k); offsets(k, s, n1);
-        for (let tx = 0.35 * W; tx < 0.65 * W; tx += 24) for (let ty = 0.3 * H; ty < 0.7 * H; ty += 24)
+        for (let tx = 0.2 * W; tx < 0.8 * W; tx += 24) for (let ty = 0.2 * H; ty < 0.8 * H; ty += 24)
           cands.push({ c: score(n1, tx, ty), k, s, tx, ty });
       }
       await tick();
@@ -531,6 +609,19 @@ const WrapEngine = (() => {
       if (bilin1(L.dist, L.W, L.H, q[0], q[1], 99) < 2) good++;
     }
     return good / tpl.nLines;
+  }
+  // Score shown to the user: how well the outline sits on the printed lines, judged only where a printed
+  // line is visible nearby (thin lines in small photos, or lines hidden under black marker, don't count
+  // against it), as long as most of the outline has a visible line nearby.
+  function shownQuality(L, tpl, Hm, fd) {
+    const q = [0, 0]; let good = 0, seen = 0;
+    for (let i = 0; i < tpl.nLines; i++) {
+      mapPoint(Hm, fd, tpl.linePts[2 * i], tpl.linePts[2 * i + 1], q);
+      const d = bilin1(L.dist, L.W, L.H, q[0], q[1], 99);
+      if (d < 2) good++;
+      if (d < 8) seen++;
+    }
+    return seen >= 0.6 * tpl.nLines ? good / seen : good / tpl.nLines;
   }
 
   // ---------------------------------------------------------- 3. the wrap
@@ -728,33 +819,72 @@ const WrapEngine = (() => {
   }
 
   // ---------------------------------------------------------- main
-  async function run(img, tpl, progress = () => {}) {
+  const fail = (code, page) => Object.assign(new Error(code), { page });
+  const lineRadius = (page, tpl) => {
+    const sEst = 0.95 * Math.max(fitScale(page.W, page.H, tpl, 0), fitScale(page.W, page.H, tpl, 1));
+    return Math.max(6, Math.ceil((tpl.lineWidth * sEst) / 2) + 3);
+  };
+  // Where the outline sits on the flattened page: rotation k (x90 deg), scale s, centre (tx, ty), fine angle th.
+  async function guessStart(img, page, tpl) {
+    const V = flatV(img, page.Pinv, page.W, page.H);
+    const L = detectLines(V, page.W, page.H, 0.45, 70, lineRadius(page, tpl));
+    await tick();
+    const c = await coarseSearch(L, tpl);
+    return c.c <= 15 ? { k: c.k, s: c.s, tx: c.tx, ty: c.ty, th: 0 } : null;
+  }
+  function defaultStart(page, tpl, k = 0) {
+    return { k, s: 0.85 * fitScale(page.W, page.H, tpl, k), tx: page.W / 2, ty: page.H / 2, th: 0 };
+  }
+  // Flattened page, scaled down for display.
+  function flatPreview(img, page, maxSide = 900) {
+    const sc = Math.min(1, maxSide / Math.max(page.W, page.H)), w = Math.round(page.W * sc), h = Math.round(page.H * sc);
+    const out = new Uint8ClampedArray(w * h * 4), P = page.Pinv, px = [0, 0, 0];
+    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+      const fx = x / sc, fy = y / sc, z = P[6] * fx + P[7] * fy + P[8];
+      sampleRGB(img, (P[0] * fx + P[1] * fy + P[2]) / z, (P[3] * fx + P[4] * fy + P[5]) / z, px, 0);
+      const o = (y * w + x) * 4; out[o] = px[0]; out[o + 1] = px[1]; out[o + 2] = px[2]; out[o + 3] = 255;
+    }
+    return { data: out, w, h, scale: sc };
+  }
+
+  // opts.corners: page corners marked by hand; opts.start: outline position set by hand (see guessStart)
+  async function run(img, tpl, progress = () => {}, opts = {}) {
     const t0 = performance.now(), times = {};
     const mark = (k) => { times[k] = Math.round(performance.now() - t0); };
     progress("page"); await paint();
-    const page = findPage(img);
-    if (!page || page.areaFrac < 0.15) throw new Error("NO_PAGE");
+    const page = opts.corners ? makePage(opts.corners, img) : findPage(img);
+    if (!page || (!opts.corners && page.areaFrac < 0.15)) throw fail("NO_PAGE", page);
     const V = flatV(img, page.Pinv, page.W, page.H);
     mark("page");
     progress("align"); await paint();
-    const sEst = 0.95 * Math.max(fitScale(page.W, page.H, tpl, 0), fitScale(page.W, page.H, tpl, 1));
-    const rLine = Math.max(6, Math.ceil((tpl.lineWidth * sEst) / 2) + 3);
+    const rLine = lineRadius(page, tpl);
     const L1 = detectLines(V, page.W, page.H, 0.45, 70, rLine);
     mark("lines");
     await tick();
-    const coarse = await coarseSearch(L1, tpl);
+    const cx = tpl.w / 2, cy = tpl.h / 2, nFit = Math.min(4000, tpl.nLines);
+    let st;
+    if (opts.start) {
+      // hand-placed outline: settle it with a wide capture range first
+      const o = opts.start;
+      const r0 = minimize((x) => costH(simH(o.k, x[0], x[1], x[2], x[3], cx, cy), tpl.linePts, nFit, L1, 30),
+        [o.s, o.tx, o.ty, o.th || 0], [0.03 * o.s, 12, 12, 0.02]);
+      st = { k: o.k, s: r0.x[0], tx: r0.x[1], ty: r0.x[2], th: r0.x[3] };
+    } else {
+      const coarse = await coarseSearch(L1, tpl);
+      if (coarse.c > 15) throw fail("NO_MATCH", page);
+      st = { k: coarse.k, s: coarse.s, tx: coarse.tx, ty: coarse.ty, th: 0 };
+    }
     mark("coarse");
-    if (coarse.c > 15) throw new Error("NO_MATCH");
-    const cx = tpl.w / 2, cy = tpl.h / 2;
-    const rs = minimize((x) => costH(simH(coarse.k, x[0], x[1], x[2], x[3], cx, cy), tpl.linePts, Math.min(4000, tpl.nLines), L1, 15),
-      [coarse.s, coarse.tx, coarse.ty, 0], [0.01, 4, 4, 0.004]);
-    let Hm = simH(coarse.k, rs.x[0], rs.x[1], rs.x[2], rs.x[3], cx, cy);
+    const rs = minimize((x) => costH(simH(st.k, x[0], x[1], x[2], x[3], cx, cy), tpl.linePts, nFit, L1, 15),
+      [st.s, st.tx, st.ty, st.th], [0.01, 4, 4, 0.004]);
+    const start = { k: st.k, s: rs.x[0], tx: rs.x[1], ty: rs.x[2], th: rs.x[3] };
+    let Hm = simH(st.k, rs.x[0], rs.x[1], rs.x[2], rs.x[3], cx, cy);
     mark("similarity");
     Hm = refineHomography(L1, tpl, Hm, [12, 8, 5]);
     mark("align");
     progress("refine"); await paint();
     let fd = await localRefine(L1, tpl, Hm);
-    let quality = matchQuality(L1, tpl, Hm, fd), faint = false;
+    let quality = matchQuality(L1, tpl, Hm, fd), faint = false, Luse = L1;
     if (quality < 0.95) {
       // printed lines may be faint in part of the photo: try again with a looser line detector
       const L2 = detectLines(V, page.W, page.H, 0.56, 60, rLine);
@@ -762,8 +892,11 @@ const WrapEngine = (() => {
       const H2 = refineHomography(L2, tpl, Hm, [8, 5]);
       const fd2 = await localRefine(L2, tpl, H2);
       const qOld = matchQuality(L2, tpl, Hm, fd), qNew = matchQuality(L2, tpl, H2, fd2);
-      if (qNew > qOld) { Hm = H2; fd = fd2; quality = qNew; faint = true; } else quality = qOld;
+      if (qNew > qOld) { Hm = H2; fd = fd2; quality = qNew; faint = true; Luse = L2; } else quality = qOld;
     }
+    quality = shownQuality(Luse, tpl, Hm, fd);
+    // an outline that fits this badly means it's the wrong car or the printed lines weren't found
+    if (!opts.start && quality < 0.5) throw fail("NO_MATCH", page);
     mark("refine");
     progress("fill"); await paint();
     const wrap = makeWrap(img, page, Hm, fd, tpl);
@@ -771,8 +904,13 @@ const WrapEngine = (() => {
     progress("save"); await paint();
     const { png, step } = await encodeWithinLimit(wrap.rgba, tpl.w, tpl.h);
     mark("save");
-    return { png, step, quality, faint, page, rgba: wrap.rgba, check: wrap.check, plain: wrap.plain, w: tpl.w, h: tpl.h, times, rotation: coarse.k };
+    return { png, step, quality, faint, page, start, rgba: wrap.rgba, check: wrap.check, plain: wrap.plain, w: tpl.w, h: tpl.h, times, rotation: st.k, manual: !!(opts.corners || opts.start) };
   }
 
-  return { prepareTemplate, run, encodePNG, _internal: { findPage, edt, gaussBlur, closeOp, labelCC } };
+  return {
+    prepareTemplate, run, encodePNG,
+    findPage: (img) => findPage(img), makePage, guessStart, defaultStart, flatPreview,
+    fitScale: (page, tpl, k) => fitScale(page.W, page.H, tpl, k),
+    _internal: { findPage, edt, gaussBlur, closeOp, labelCC, dilate },
+  };
 })();

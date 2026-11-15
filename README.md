@@ -23,7 +23,7 @@ Turning a crumpled, colourful sheet of paper into a clean wrap file by hand is f
 
 1. **Print the blank template** for your car from [Tesla's custom-wraps page](https://github.com/teslamotors/custom-wraps) (A4 or Letter, fit to page). The app also has a link to it.
 2. **Colour it in.** Going over the lines is fine.
-3. **Take a photo** with the whole page in view. Any angle up to about 30° works, so you can tilt the phone to avoid glare.
+3. **Take a photo** with the whole page in view. Any angle up to about 30° works, so you can tilt the phone to avoid glare. Any paper size works (A4, Letter, …), and the template can be printed in any direction or size.
 4. **Open [Crayon Wraps](https://cjborchert.github.io/tesla-crayon-wraps/)**, choose your car and add the photo.
 5. **Save the PNG** and put it on the car (see below).
 
@@ -33,11 +33,13 @@ Turning a crumpled, colourful sheet of paper into a clean wrap file by hand is f
 
 ### What happens to the photo
 
-- Finds the sheet of paper and straightens it, whatever the angle.
+- Finds the sheet of paper and straightens it, whatever the angle, the paper size or the colour of the light.
 - Lines up the printed outline with Tesla's template, including a gentle local correction for curled paper or lens distortion. The *alignment check* view shows how well it fits.
 - Fills every panel using only the colouring from inside that panel's own outline, so scribbles over the lines don't bleed into the neighbouring panel. The crayon texture is kept.
 - Evens out shadows and white balance, so the paper comes out white and the colours look like the drawing.
 - Keeps the template's transparency exactly, and keeps the file within Tesla's 1 MB limit.
+
+If the app can't find the page or the outline, it explains what went wrong in plain words, gives tips for a better photo, and lets you **line it up by hand**: drag the four corners of the page, then drag, turn or resize the car outline roughly into place. The fine-tuning then takes over from there.
 
 ## Put it on the car
 

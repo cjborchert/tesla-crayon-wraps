@@ -157,6 +157,26 @@ code { font: 12.5px ui-monospace, "SF Mono", Menlo, monospace; background: var(-
 .touch .desk-only { display: none !important; }
 .touch select, .touch input { font-size: 16px; }
 .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.tipbox { text-align: left; background: var(--surface-2); border: 1px solid var(--border); border-radius: 12px; padding: 12px 16px; margin: 0 0 16px; }
+.tipbox b { font-size: 14px; }
+.tipbox ul { margin: 8px 0 0; padding-left: 18px; color: var(--muted); font-size: 13.5px; }
+.tipbox li { margin: 5px 0; }
+.err-btns, .adj-btns { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
+.warnbox { display: flex; gap: 10px; align-items: flex-start; margin: 16px 0 0; padding: 12px 14px; border-radius: 12px; border: 1px solid var(--warn); background: color-mix(in srgb, var(--warn) 10%, var(--surface)); font-size: 13.5px; }
+.warnbox p { margin: 2px 0 8px; color: var(--muted); }
+.warnbox .dot { background: var(--warn); margin-top: 5px; }
+.fixrow { margin-top: 10px; font-size: 13.5px; color: var(--muted); }
+.adj-head { margin-bottom: 12px; }
+.adj-head h3 { margin: 6px 0 2px; font-size: 17px; }
+.adj-head p { margin: 0; color: var(--muted); font-size: 14px; }
+.pill { display: inline-block; font-size: 12px; font-weight: 600; color: var(--accent); background: var(--accent-soft); border-radius: 999px; padding: 2px 10px; }
+.adj-stage { display: flex; justify-content: center; background: var(--stage); border-radius: 12px; overflow: hidden; }
+.adj-stage canvas { display: block; touch-action: none; cursor: grab; max-width: 100%; }
+.adj-stage canvas.dragging { cursor: grabbing; }
+.adj-tools { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-top: 12px; }
+.adj-tools label { display: flex; gap: 8px; align-items: center; font-size: 13.5px; color: var(--muted); flex: 1; min-width: 200px; }
+.adj-tools input[type=range] { flex: 1; accent-color: var(--accent); }
+#adjust .adj-btns { justify-content: flex-end; margin-top: 14px; }
 [hidden] { display: none !important; }
 </style>
 <script>
@@ -227,9 +247,10 @@ code { font: 12.5px ui-monospace, "SF Mono", Menlo, monospace; background: var(-
       <details class="tips">
         <summary>Photo tips</summary>
         <ul>
-          <li>Lay the page flat on a surface that isn't white.</li>
-          <li>Fit the whole sheet in the frame with a little table around it.</li>
-          <li>Shooting at an angle to avoid glare is fine.</li>
+          <li>Lay the page flat on a surface that isn't white, like a darker table or wood.</li>
+          <li>Fit the whole sheet in the frame with a little table showing all around it.</li>
+          <li>Shooting at an angle to avoid glare is fine. Keep your shadow and reflections off the page.</li>
+          <li>Use the photo straight from the camera. Photos sent through chat apps are made smaller and blurrier.</li>
           <li>Colouring over the lines is fine: each panel only takes colour from inside its own outline.</li>
         </ul>
       </details>
@@ -265,7 +286,29 @@ code { font: 12.5px ui-monospace, "SF Mono", Menlo, monospace; background: var(-
       <div id="error" class="error" hidden>
         <h3 id="errTitle"></h3>
         <p id="errText"></p>
-        <button class="btn" id="errRetry" type="button">Try another photo</button>
+        <div class="tipbox" id="errTipBox"><b>What usually helps</b><ul id="errTips"></ul></div>
+        <div class="err-btns">
+          <button class="btn primary" id="errManual" type="button">Mark the corners myself</button>
+          <button class="btn" id="errRetry" type="button">Try another photo</button>
+        </div>
+      </div>
+
+      <div id="adjust" hidden>
+        <div class="adj-head">
+          <span class="pill" id="adjStep">Step 1 of 2</span>
+          <h3 id="adjTitle">Mark the corners of the page</h3>
+          <p id="adjHelp"></p>
+        </div>
+        <div class="adj-stage"><canvas id="adjCanvas"></canvas></div>
+        <div class="adj-tools" id="adjTools" hidden>
+          <button class="btn" id="adjRotate" type="button">↻ Turn a quarter</button>
+          <label>Size <input type="range" id="adjSize" min="35" max="115" step="0.5"></label>
+        </div>
+        <p class="note" id="adjNote" hidden></p>
+        <div class="adj-btns">
+          <button class="btn" id="adjBack" type="button">Cancel</button>
+          <button class="btn primary" id="adjNext" type="button">Next</button>
+        </div>
       </div>
 
       <div id="result" hidden>
@@ -280,6 +323,12 @@ code { font: 12.5px ui-monospace, "SF Mono", Menlo, monospace; background: var(-
           </figure>
         </div>
         <ul class="checks" id="checks"></ul>
+        <div class="warnbox" id="lowMatch" hidden><span class="dot"></span><div>
+          <b>The outline may not line up everywhere</b>
+          <p>In the alignment check, the pink lines should sit on the printed lines of the drawing. Where they don't, colours can end up on the wrong part of the car.</p>
+          <button class="btn" id="lowFix" type="button">Line it up by hand</button>
+        </div></div>
+        <p class="fixrow" id="fixRow">Not lined up right? <button class="btn link" id="fixBtn" type="button">Line it up by hand</button></p>
         <div class="save">
           <label for="fname">File name
             <span class="fname" id="fnameBox"><input id="fname" maxlength="26" spellcheck="false" autocomplete="off" autocapitalize="off"><span>.png</span></span>
@@ -461,7 +510,7 @@ code { font: 12.5px ui-monospace, "SF Mono", Menlo, monospace; background: var(-
   }
 
   // ---------- views ----------
-  const panels = ["idle", "working", "error", "result"];
+  const panels = ["idle", "working", "error", "result", "adjust"];
   const show = (id) => panels.forEach((p) => ($(p).hidden = p !== id));
   const narrow = () => window.matchMedia("(max-width: 900px)").matches;
   const reveal = () => { if (narrow()) $("mainCard").scrollIntoView({ behavior: "smooth", block: "start" }); };
@@ -471,7 +520,36 @@ code { font: 12.5px ui-monospace, "SF Mono", Menlo, monospace; background: var(-
     $("idleText").textContent = !state.tpl ? "Start by choosing your car." : "Now add a photo of a coloured-in page.";
     show("idle");
   }
-  function showError(title, text) { $("errTitle").textContent = title; $("errText").textContent = text; show("error"); reveal(); }
+  function showError(title, text, tips = [], manual = null) {
+    $("errTitle").textContent = title; $("errText").textContent = text;
+    $("errTips").innerHTML = "";
+    for (const t of tips) { const li = document.createElement("li"); li.textContent = t; $("errTips").append(li); }
+    $("errTipBox").hidden = !tips.length;
+    $("errManual").hidden = !manual; if (manual) $("errManual").textContent = manual;
+    show("error"); reveal();
+  }
+  // Plain-language explanations for when the automatic detection doesn't work out
+  const PROBLEMS = {
+    NO_PAGE: ["We couldn't find the sheet of paper",
+      "The app looks for a white rectangle in the photo, but it couldn't tell where the paper ends and the table begins.",
+      ["Make sure all four corners of the paper are in the photo, with some table showing all around it.",
+       "Put the paper on something that isn't white or very light, such as a darker table.",
+       "Keep shadows (from your phone, hand or a lamp) and bright reflections off the page.",
+       "Flatten the page: folds and curled corners make the edges harder to see."],
+      "Mark the corners myself"],
+    NO_MATCH: ["We found the paper, but not the car outline",
+      "The printed outline of the car on the page didn't match the template for the car chosen in step 1.",
+      ["Check that the car chosen in step 1 is the template you printed. For example, the Model Y up to 2024 and the 2025+ Model Y look alike but are different.",
+       "The thin printed lines need to be visible: dark colouring right over the lines, or very faint printing, makes them hard to find.",
+       "Take the photo in good, even light and hold the phone still so it's sharp.",
+       "Use the photo straight from the camera. Chat apps make photos smaller and blurrier."],
+      "Line it up myself"],
+    OTHER: ["Something went wrong",
+      "The photo couldn't be turned into a wrap this time.",
+      ["Try the same photo again.", "If it keeps happening, take a new photo with the whole page in view, or reload the page."],
+      "Line it up myself"],
+  };
+  function showProblem(code) { const [t, x, tips, m] = PROBLEMS[code] || PROBLEMS.OTHER; showError(t, x, tips, m); }
   function setStep(k) {
     let seen = false;
     document.querySelectorAll("#steps li").forEach((li) => {
@@ -481,22 +559,22 @@ code { font: 12.5px ui-monospace, "SF Mono", Menlo, monospace; background: var(-
   }
 
   // ---------- run ----------
-  async function process() {
+  async function process(opts = {}) {
     if (state.busy || !state.tpl || !state.photo) return;
-    state.busy = true; state.result = null;
+    state.busy = true; state.result = null; state.lastPage = null;
     show("working"); setStep("page"); reveal();
     const t0 = performance.now();
     try {
-      const r = await WrapEngine.run(state.photo.img, state.tpl, setStep);
+      const r = await WrapEngine.run(state.photo.img, state.tpl, setStep, opts);
       r.seconds = (performance.now() - t0) / 1000;
       state.result = r; window.__lastResult = r;
       drawPhoto(r.page.corners);
       renderResult(r);
     } catch (e) {
       console.error(e);
-      if (e.message === "NO_PAGE") showError("Couldn't find the page", "Make sure all four corners of the sheet are in the photo, with some of the table showing around it.");
-      else if (e.message === "NO_MATCH") showError("Couldn't match the template", "The page was found, but its printed outline doesn't match the car chosen in step 1. Is the right car selected?");
-      else showError("Something went wrong", "Try the photo again, or take a new one.");
+      state.lastPage = e.page || null;
+      if (state.lastPage) drawPhoto(state.lastPage.corners);
+      showProblem(e.message === "NO_PAGE" || e.message === "NO_MATCH" ? e.message : "OTHER");
     } finally { state.busy = false; }
   }
   function renderResult(r) {
@@ -507,11 +585,12 @@ code { font: 12.5px ui-monospace, "SF Mono", Menlo, monospace; background: var(-
     state.url = URL.createObjectURL(new Blob([r.png], { type: "image/png" }));
     $("wrapImg").src = state.url;
     const kb = Math.round(r.png.length / 1000), q = Math.round(r.quality * 100);
+    $("lowMatch").hidden = q >= 80; $("fixRow").hidden = q < 80;
     const items = [
       ["ok", "PNG"],
       ["ok", `${r.w} × ${r.h} px`],
       [r.png.length < 1000000 ? "ok" : "bad", `${kb} KB (limit 1 MB)`],
-      [q >= 90 ? "ok" : q >= 80 ? "warn" : "bad", q >= 80 ? `Outline match ${q}%` : `Outline match ${q}%: check the alignment`],
+      [q >= 90 ? "ok" : q >= 80 ? "warn" : "bad", `Outline match ${q}%`],
     ];
     $("checks").innerHTML = "";
     for (const [cls, text] of items) {
@@ -553,6 +632,152 @@ code { font: 12.5px ui-monospace, "SF Mono", Menlo, monospace; background: var(-
     catch (e) { if (e && e.name !== "AbortError") download(); }
   }
 
+  // ---------- lining it up by hand ----------
+  // Step 1: drag the page corners (this straightens the photo). Step 2: drag/turn/resize the car outline
+  // roughly onto the printed lines; the automatic fine-tuning then takes it from there.
+  const adj = { step: 1, corners: null, page: null, prev: null, prevCanvas: null, start: null, drag: null, view: null, pointers: new Map() };
+  const accent = () => getComputedStyle(document.documentElement).getPropertyValue("--accent").trim() || "#e4572e";
+  function outlineCanvas() {
+    if (state.tpl._outline) return state.tpl._outline;
+    const t = state.tpl, thick = WrapEngine._internal.dilate(t.lineMask, t.w, t.h, 2);
+    const c = document.createElement("canvas"); c.width = t.w; c.height = t.h;
+    const g = c.getContext("2d"), im = g.createImageData(t.w, t.h);
+    for (let i = 0; i < t.w * t.h; i++) if (thick[i] > 0.5) { im.data[4 * i] = 255; im.data[4 * i + 1] = 0; im.data[4 * i + 2] = 110; im.data[4 * i + 3] = 255; }
+    g.putImageData(im, 0, 0);
+    return (t._outline = c);
+  }
+  function openAdjust() {
+    const im = state.photo.img, src = (state.result && state.result.page) || state.lastPage;
+    adj.corners = src ? src.corners.map((p) => p.slice())
+      : [[im.w * 0.12, im.h * 0.12], [im.w * 0.88, im.h * 0.12], [im.w * 0.88, im.h * 0.88], [im.w * 0.12, im.h * 0.88]];
+    adj.start = state.result ? { ...state.result.start } : null;
+    adj.startCorners = src ? JSON.stringify(src.corners) : null;
+    show("adjust"); setAdjStep(1); reveal();
+  }
+  function setAdjStep(n) {
+    adj.step = n;
+    $("adjStep").textContent = `Step ${n} of 2`;
+    $("adjTitle").textContent = n === 1 ? "Mark the corners of the page" : "Line up the car outline";
+    $("adjHelp").textContent = n === 1
+      ? "Drag the four round handles onto the four corners of the sheet of paper. This straightens the photo."
+      : "Drag the pink outline so it sits roughly on the printed lines. Use the buttons to turn it or change its size. It doesn't have to be exact: the app fine-tunes it.";
+    $("adjTools").hidden = n !== 2; $("adjNote").hidden = true;
+    $("adjBack").textContent = n === 1 ? "Cancel" : "Back";
+    $("adjNext").textContent = n === 1 ? "Next" : "Make the wrap";
+    sizeAdjCanvas(); drawAdj();
+  }
+  function sizeAdjCanvas() {
+    const cv = $("adjCanvas"), stage = cv.parentElement;
+    const iw = adj.step === 1 ? state.photo.img.w : adj.prev.w, ih = adj.step === 1 ? state.photo.img.h : adj.prev.h;
+    const maxW = stage.clientWidth || 600, maxH = Math.max(300, window.innerHeight * 0.58);
+    const sc = Math.min(maxW / iw, maxH / ih), dpr = window.devicePixelRatio || 1;
+    cv.style.width = Math.round(iw * sc) + "px"; cv.style.height = Math.round(ih * sc) + "px";
+    cv.width = Math.round(iw * sc * dpr); cv.height = Math.round(ih * sc * dpr);
+    adj.view = { sc, dpr };
+  }
+  function drawAdj() {
+    const cv = $("adjCanvas"), g = cv.getContext("2d"), { sc, dpr } = adj.view, k = sc * dpr;
+    g.setTransform(1, 0, 0, 1, 0, 0); g.clearRect(0, 0, cv.width, cv.height);
+    if (adj.step === 1) {
+      g.drawImage(state.photo.canvas, 0, 0, cv.width, cv.height);
+      const c = adj.corners, ord = orderCorners(c);
+      g.beginPath(); ord.forEach(([x, y], i) => (i ? g.lineTo(x * k, y * k) : g.moveTo(x * k, y * k))); g.closePath();
+      g.fillStyle = "rgba(228,87,46,0.12)"; g.fill(); g.lineWidth = 2 * dpr; g.strokeStyle = accent(); g.stroke();
+      const r = (isTouch ? 16 : 11) * dpr;
+      for (const [x, y] of c) {
+        g.beginPath(); g.arc(x * k, y * k, r, 0, Math.PI * 2); g.fillStyle = "rgba(255,255,255,0.85)"; g.fill();
+        g.lineWidth = 3 * dpr; g.strokeStyle = accent(); g.stroke();
+        g.beginPath(); g.arc(x * k, y * k, 2.5 * dpr, 0, Math.PI * 2); g.fillStyle = accent(); g.fill();
+      }
+      if (adj.drag && adj.drag.type === "corner") drawLoupe(g, adj.corners[adj.drag.i], k, dpr);
+    } else {
+      g.drawImage(adj.prevCanvas, 0, 0, cv.width, cv.height);
+      const st = adj.start, t = state.tpl, fk = (cv.width / adj.page.W);   // canvas px per flat px
+      g.save(); g.globalAlpha = 0.9;
+      g.translate(st.tx * fk, st.ty * fk); g.rotate(st.k * Math.PI / 2 + (st.th || 0)); g.scale(st.s * fk, st.s * fk); g.translate(-t.w / 2, -t.h / 2);
+      g.drawImage(outlineCanvas(), 0, 0); g.restore();
+    }
+  }
+  // magnifier while dragging a corner (a finger hides exactly the spot you're placing)
+  function drawLoupe(g, [x, y], k, dpr) {
+    const R = 58 * dpr, z = 3, cx = (x * k < g.canvas.width / 2 ? g.canvas.width - R - 10 * dpr : R + 10 * dpr), cy = R + 10 * dpr;
+    g.save(); g.beginPath(); g.arc(cx, cy, R, 0, Math.PI * 2); g.clip();
+    const sz = (2 * R) / (z * k);
+    g.drawImage(state.photo.canvas, x - sz / 2, y - sz / 2, sz, sz, cx - R, cy - R, 2 * R, 2 * R);
+    g.strokeStyle = accent(); g.lineWidth = 1.5 * dpr;
+    g.beginPath(); g.moveTo(cx - 12 * dpr, cy); g.lineTo(cx + 12 * dpr, cy); g.moveTo(cx, cy - 12 * dpr); g.lineTo(cx, cy + 12 * dpr); g.stroke();
+    g.restore(); g.beginPath(); g.arc(cx, cy, R, 0, Math.PI * 2); g.lineWidth = 3 * dpr; g.strokeStyle = "#fff"; g.stroke();
+  }
+  function orderCorners(q) {
+    const cx = q.reduce((s, p) => s + p[0], 0) / 4, cy = q.reduce((s, p) => s + p[1], 0) / 4;
+    return q.slice().sort((a, b) => Math.atan2(a[1] - cy, a[0] - cx) - Math.atan2(b[1] - cy, b[0] - cx));
+  }
+  const evPos = (e) => { const r = $("adjCanvas").getBoundingClientRect(); return [e.clientX - r.left, e.clientY - r.top]; };
+  function adjDown(e) {
+    const [px, py] = evPos(e); adj.pointers.set(e.pointerId, [px, py]);
+    $("adjCanvas").setPointerCapture(e.pointerId);
+    if (adj.step === 1) {
+      const sc = adj.view.sc; let best = -1, bd = Infinity;
+      adj.corners.forEach(([x, y], i) => { const d = Math.hypot(x * sc - px, y * sc - py); if (d < bd) { bd = d; best = i; } });
+      if (bd < (isTouch ? 44 : 30)) adj.drag = { type: "corner", i: best, off: [adj.corners[best][0] * sc - px, adj.corners[best][1] * sc - py] };
+    } else if (adj.pointers.size === 2) {
+      const [a, b] = [...adj.pointers.values()];
+      adj.drag = { type: "pinch", d0: Math.hypot(a[0] - b[0], a[1] - b[1]), s0: adj.start.s };
+    } else adj.drag = { type: "move", p0: [px, py], t0: [adj.start.tx, adj.start.ty] };
+    $("adjCanvas").classList.toggle("dragging", !!adj.drag); drawAdj();
+  }
+  function adjMove(e) {
+    if (!adj.pointers.has(e.pointerId)) return;
+    const [px, py] = evPos(e); adj.pointers.set(e.pointerId, [px, py]);
+    const d = adj.drag; if (!d) return;
+    e.preventDefault();
+    if (d.type === "corner") {
+      const sc = adj.view.sc, im = state.photo.img;
+      adj.corners[d.i] = [Math.min(im.w - 1, Math.max(0, (px + d.off[0]) / sc)), Math.min(im.h - 1, Math.max(0, (py + d.off[1]) / sc))];
+    } else {
+      const css = parseFloat($("adjCanvas").style.width) / adj.page.W;   // css px per flat px
+      if (d.type === "move") { adj.start.tx = d.t0[0] + (px - d.p0[0]) / css; adj.start.ty = d.t0[1] + (py - d.p0[1]) / css; }
+      else if (adj.pointers.size === 2) { const [a, b] = [...adj.pointers.values()]; adj.start.s = d.s0 * Math.hypot(a[0] - b[0], a[1] - b[1]) / d.d0; syncSize(); }
+    }
+    drawAdj();
+  }
+  function adjUp(e) {
+    adj.pointers.delete(e.pointerId);
+    if (adj.drag && adj.drag.type === "pinch" && adj.pointers.size === 1) {
+      const [p] = [...adj.pointers.values()]; adj.drag = { type: "move", p0: p, t0: [adj.start.tx, adj.start.ty] };
+    } else if (!adj.pointers.size) adj.drag = null;
+    $("adjCanvas").classList.toggle("dragging", !!adj.drag); drawAdj();
+  }
+  const fitS = (k) => WrapEngine.fitScale(adj.page, state.tpl, k);
+  function syncSize() { $("adjSize").value = (100 * adj.start.s / fitS(adj.start.k)).toFixed(1); }
+  async function adjNext() {
+    if (adj.step === 1) {
+      const page = WrapEngine.makePage(adj.corners, state.photo.img);
+      if (!page || page.areaFrac < 0.02) { $("adjNote").textContent = "Those four points don't make a page shape. Put one handle on each corner of the paper."; $("adjNote").hidden = false; return; }
+      const sameCorners = adj.startCorners === JSON.stringify(page.corners);
+      adj.page = page;
+      const pv = WrapEngine.flatPreview(state.photo.img, page, 900);
+      const c = document.createElement("canvas"); c.width = pv.w; c.height = pv.h;
+      c.getContext("2d").putImageData(new ImageData(pv.data, pv.w, pv.h), 0, 0);
+      adj.prev = pv; adj.prevCanvas = c;
+      if (!(sameCorners && adj.start)) {
+        $("adjNext").disabled = true; $("adjNote").textContent = "Looking for the outline…"; $("adjNote").hidden = false;
+        await new Promise((r) => setTimeout(r, 30));
+        adj.start = (await WrapEngine.guessStart(state.photo.img, page, state.tpl)) || WrapEngine.defaultStart(page, state.tpl, adj.start ? adj.start.k : 0);
+        $("adjNext").disabled = false;
+      }
+      setAdjStep(2); syncSize();
+    } else {
+      process({ corners: adj.corners.map((p) => p.slice()), start: { ...adj.start } });
+    }
+  }
+  function adjBack() {
+    if (adj.step === 2) return setAdjStep(1);
+    if (state.result) show("result"); else if (state.lastPage !== undefined) show("error"); else showIdle();
+  }
+  window.addEventListener("resize", () => { if (!$("adjust").hidden) { sizeAdjCanvas(); drawAdj(); } });
+  window.__adj = adj; // inspected by the automated tests
+
   // ---------- wiring ----------
   const pick = (input) => { input.value = ""; input.click(); };
   buildCarMenu();
@@ -572,6 +797,17 @@ code { font: 12.5px ui-monospace, "SF Mono", Menlo, monospace; background: var(-
   $("fname").onkeydown = (e) => { if (e.key === "Enter") ($("share").hidden ? download : share)(); };
   $("download").onclick = download;
   $("share").onclick = share;
+  $("errManual").onclick = openAdjust;
+  $("fixBtn").onclick = openAdjust;
+  $("lowFix").onclick = openAdjust;
+  $("adjNext").onclick = adjNext;
+  $("adjBack").onclick = adjBack;
+  $("adjRotate").onclick = () => { const st = adj.start, rel = st.s / fitS(st.k); st.k = (st.k + 1) % 4; st.s = rel * fitS(st.k); st.th = 0; syncSize(); drawAdj(); };
+  $("adjSize").oninput = (e) => { adj.start.s = (e.target.value / 100) * fitS(adj.start.k); drawAdj(); };
+  const ac = $("adjCanvas");
+  ac.addEventListener("pointerdown", adjDown); ac.addEventListener("pointermove", adjMove);
+  ac.addEventListener("pointerup", adjUp); ac.addEventListener("pointercancel", adjUp);
+  ac.addEventListener("wheel", (e) => { if (adj.step !== 2) return; e.preventDefault(); adj.start.s *= e.deltaY < 0 ? 1.02 : 0.98; syncSize(); drawAdj(); }, { passive: false });
 
   const dz = $("photoDrop");
   dz.addEventListener("dragover", (e) => { e.preventDefault(); e.stopPropagation(); dz.classList.add("over"); });
