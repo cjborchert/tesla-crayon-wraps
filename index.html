@@ -813,7 +813,6 @@ const WrapEngine = (() => {
     const mA = new Uint8Array(N);
     for (let i = 0; i < N; i++) mA[i] = ((vb[i] > 185 && sb[i] < 60) || (sb[i] < 45 && vb[i] > 165)) ? 1 : 0;
     const a = pageFromMask(mA);
-    if (plausible(a) && a.areaFrac >= 0.35) return a;
     // 2) tinted light (e.g. blue-ish daylight) on a light surface such as wood: paper is simply
     //    the "whitest" thing in the photo, so split brightness-minus-saturation automatically (Otsu)
     const hist = new Float64Array(256), score = new Float32Array(N);
@@ -828,10 +827,32 @@ const WrapEngine = (() => {
     const mB2 = new Uint8Array(N), t = thr * 2 - 255;
     for (let i = 0; i < N; i++) mB2[i] = score[i] > t ? 1 : 0;
     const b = pageFromMask(mB2);
-    if (plausible(b) && (!a || b.areaFrac > 1.5 * a.areaFrac)) return b;
-    if (plausible(a)) return a;
-    if (plausible(b)) return b;
-    return null;
+    // When both find something paper-like, keep the one whose four sides really run along the paper's
+    // edge: brighter paper just inside, darker surroundings just outside, along (nearly) the whole side.
+    // This catches a page with a corner cut off by shading, and a page that leaked into a light cloth or glare.
+    function edgeScore(r) {
+      const c = r.corners.map(([x, y]) => [(x - (F - 1) / 2) / F, (y - (F - 1) / 2) / F]);
+      const mx = (c[0][0] + c[1][0] + c[2][0] + c[3][0]) / 4, my = (c[0][1] + c[1][1] + c[2][1] + c[3][1]) / 4;
+      let total = 0;
+      for (let k = 0; k < 4; k++) {
+        const [px, py] = c[k], [qx, qy] = c[(k + 1) % 4], len = Math.hypot(qx - px, qy - py) || 1;
+        let nx = -(qy - py) / len, ny = (qx - px) / len;                       // unit normal, pointing outwards
+        if (nx * ((px + qx) / 2 - mx) + ny * ((py + qy) / 2 - my) < 0) { nx = -nx; ny = -ny; }
+        const vals = [];
+        for (let t = 0.06; t < 0.95; t += 0.02) {
+          const x = px + (qx - px) * t, y = py + (qy - py) * t;
+          vals.push(bilinClamp(vb, sw, sh, x - 3 * nx, y - 3 * ny) - bilinClamp(vb, sw, sh, x + 3 * nx, y + 3 * ny));
+        }
+        vals.sort((u, v) => u - v);
+        total += vals[Math.floor(vals.length * 0.25)];                          // most of the side must be an edge
+      }
+      return total / 4;
+    }
+    const found = [a, b].filter(plausible);
+    findPage.debug = { a: a && { area: a.areaFrac, ok: plausible(a), corners: a.corners, edge: edgeScore(a) },
+                       b: b && { area: b.areaFrac, ok: plausible(b), corners: b.corners, edge: edgeScore(b) } };
+    if (found.length < 2) return found[0] || null;
+    return edgeScore(b) > edgeScore(a) + 10 ? b : a;   // only switch when clearly better
   }
   function flatV(img, Pinv, W, H) {
     const V = new Float32Array(W * H), px = [0, 0, 0];
@@ -845,13 +866,14 @@ const WrapEngine = (() => {
 
   // ---------------------------------------------------------- 2. alignment
   // Printed lines: thin, dark relative to local paper/colour brightness.
-  function detectLines(V, W, H, vnMax, bhMin, rLine = 6) {
+  // bhRel > 0: "darker than its surroundings" is judged relative to the local paper brightness (dim photos)
+  function detectLines(V, W, H, vnMax, bhMin, rLine = 6, bhRel = 0) {
     const bg = gaussBlur(closeOp(V, W, H, Math.max(15, rLine + 9)), W, H, 8);
     const c13 = closeOp(V, W, H, rLine);
     const lines = new Uint8Array(W * H), B = 35;
     for (let y = B; y < H - B; y++) for (let x = B; x < W - B; x++) {
       const i = y * W + x;
-      lines[i] = V[i] / bg[i] < vnMax && c13[i] - V[i] > bhMin ? 1 : 0;
+      lines[i] = V[i] / bg[i] < vnMax && c13[i] - V[i] > (bhRel ? bhRel * bg[i] : bhMin) ? 1 : 0;
     }
     const { d2, idx } = edt(lines, W, H, true);
     const dist = new Float32Array(W * H);
@@ -912,6 +934,7 @@ const WrapEngine = (() => {
       await tick();
     }
     cands.sort((a, b) => a.c - b.c);
+    const typical = cands[Math.floor(cands.length / 2)].c;
     // level 2: dense local search around the best candidates with more points
     let best = { c: Infinity };
     for (const cd of cands.slice(0, 60)) {
@@ -924,6 +947,7 @@ const WrapEngine = (() => {
         }
       }
     }
+    best.typical = typical;
     return best;
   }
   function refineHomography(L, tpl, H0, truncs) {
@@ -986,6 +1010,19 @@ const WrapEngine = (() => {
       if (bilin1(L.dist, L.W, L.H, q[0], q[1], 99) < 2) good++;
     }
     return good / tpl.nLines;
+  }
+  // Independent check of a fit, straight from the photo: along a printed line the paper is darker than
+  // just beside it. Fraction of outline points that are clearly darker than their surroundings.
+  function lineContrast(V, W, H, tpl, Hm, fd) {
+    const q = [0, 0], step = Math.max(1, Math.floor(tpl.nLines / 3000)); let dark = 0, n = 0;
+    for (let i = 0; i < tpl.nLines; i += step) {
+      mapPoint(Hm, fd, tpl.linePts[2 * i], tpl.linePts[2 * i + 1], q);
+      if (!(q[0] > 6 && q[1] > 6 && q[0] < W - 7 && q[1] < H - 7)) continue;
+      const v0 = bilin1(V, W, H, q[0], q[1], 0); let vmax = 0;
+      for (let a = 0; a < 8; a++) vmax = Math.max(vmax, bilin1(V, W, H, q[0] + 5 * Math.cos(a * Math.PI / 4), q[1] + 5 * Math.sin(a * Math.PI / 4), 0));
+      n++; if (v0 < 0.9 * vmax) dark++;
+    }
+    return n ? dark / n : 0;
   }
   // Score shown to the user: how well the outline sits on the printed lines, judged only where a printed
   // line is visible nearby (thin lines in small photos, or lines hidden under black marker, don't count
@@ -1201,13 +1238,25 @@ const WrapEngine = (() => {
     const sEst = 0.95 * Math.max(fitScale(page.W, page.H, tpl, 0), fitScale(page.W, page.H, tpl, 1));
     return Math.max(6, Math.ceil((tpl.lineWidth * sEst) / 2) + 3);
   };
+  // Line-detection settings: first the original ones (tuned on bright photos, unchanged), then more
+  // sensitive ones for dim, blurry or low-contrast photos. Later levels only run if earlier ones fail.
+  const LEVELS = [{ vn: 0.45, abs: 70 }, { vn: 0.6, rel: 0.25, smooth: 1 }, { vn: 0.72, rel: 0.16, smooth: 1.2 }];
+  function linesAt(V, page, rLine, lv) {
+    const src = lv.smooth ? gaussBlur(V, page.W, page.H, lv.smooth) : V;
+    return detectLines(src, page.W, page.H, lv.vn, lv.abs || 0, rLine, lv.rel || 0);
+  }
+  // A sensitive line map has more stray marks, so there the best spot must also clearly beat a typical spot.
+  const coarseOk = (c, li) => c.c <= 15 && (li === 0 || c.c < 0.55 * c.typical);
   // Where the outline sits on the flattened page: rotation k (x90 deg), scale s, centre (tx, ty), fine angle th.
   async function guessStart(img, page, tpl) {
-    const V = flatV(img, page.Pinv, page.W, page.H);
-    const L = detectLines(V, page.W, page.H, 0.45, 70, lineRadius(page, tpl));
-    await tick();
-    const c = await coarseSearch(L, tpl);
-    return c.c <= 15 ? { k: c.k, s: c.s, tx: c.tx, ty: c.ty, th: 0 } : null;
+    const V = flatV(img, page.Pinv, page.W, page.H), rLine = lineRadius(page, tpl);
+    for (let li = 0; li < LEVELS.length; li++) {
+      const L = linesAt(V, page, rLine, LEVELS[li]);
+      await tick();
+      const c = await coarseSearch(L, tpl);
+      if (coarseOk(c, li)) return { k: c.k, s: c.s, tx: c.tx, ty: c.ty, th: 0 };
+    }
+    return null;
   }
   function defaultStart(page, tpl, k = 0) {
     return { k, s: 0.85 * fitScale(page.W, page.H, tpl, k), tx: page.W / 2, ty: page.H / 2, th: 0 };
@@ -1235,53 +1284,63 @@ const WrapEngine = (() => {
     mark("page");
     progress("align"); await paint();
     const rLine = lineRadius(page, tpl);
-    const L1 = detectLines(V, page.W, page.H, 0.45, 70, rLine);
-    mark("lines");
-    await tick();
     const cx = tpl.w / 2, cy = tpl.h / 2, nFit = Math.min(4000, tpl.nLines);
-    let st;
-    if (opts.start) {
-      // hand-placed outline is only roughly right: search around it (about 7% of the page in each
-      // direction, +/-12% in size) before the fine-tuning
-      const o = opts.start, th0 = o.th || 0, n0 = Math.min(400, tpl.nLines);
-      const reach = 0.07 * Math.max(page.W, page.H);
-      let best = { c: Infinity };
-      for (let ds = -0.12; ds <= 0.1201; ds += 0.03) for (let dx = -reach; dx <= reach; dx += 8) for (let dy = -reach; dy <= reach; dy += 8) {
-        const s1 = o.s * (1 + ds), c = costH(simH(o.k, s1, o.tx + dx, o.ty + dy, th0, cx, cy), tpl.linePts, n0, L1, 25);
-        if (c < best.c) best = { c, s: s1, tx: o.tx + dx, ty: o.ty + dy };
+    const align = async (L, li) => {
+      let st;
+      if (opts.start) {
+        // hand-placed outline is only roughly right: search around it (about 7% of the page in each
+        // direction, +/-12% in size) before the fine-tuning
+        const o = opts.start, th0 = o.th || 0, n0 = Math.min(400, tpl.nLines);
+        const reach = 0.07 * Math.max(page.W, page.H);
+        let best = { c: Infinity };
+        for (let ds = -0.12; ds <= 0.1201; ds += 0.03) for (let dx = -reach; dx <= reach; dx += 8) for (let dy = -reach; dy <= reach; dy += 8) {
+          const s1 = o.s * (1 + ds), c = costH(simH(o.k, s1, o.tx + dx, o.ty + dy, th0, cx, cy), tpl.linePts, n0, L, 25);
+          if (c < best.c) best = { c, s: s1, tx: o.tx + dx, ty: o.ty + dy };
+        }
+        await tick();
+        const r0 = minimize((x) => costH(simH(o.k, x[0], x[1], x[2], x[3], cx, cy), tpl.linePts, nFit, L, 25),
+          [best.s, best.tx, best.ty, th0], [0.01 * best.s, 4, 4, 0.01]);
+        st = { k: o.k, s: r0.x[0], tx: r0.x[1], ty: r0.x[2], th: r0.x[3] };
+      } else {
+        const coarse = await coarseSearch(L, tpl);
+        if (!coarseOk(coarse, li)) return null;
+        st = { k: coarse.k, s: coarse.s, tx: coarse.tx, ty: coarse.ty, th: 0 };
       }
+      mark("coarse");
+      const rs = minimize((x) => costH(simH(st.k, x[0], x[1], x[2], x[3], cx, cy), tpl.linePts, nFit, L, 15),
+        [st.s, st.tx, st.ty, st.th], [0.01, 4, 4, 0.004]);
+      const start = { k: st.k, s: rs.x[0], tx: rs.x[1], ty: rs.x[2], th: rs.x[3] };
+      let Hm = simH(st.k, rs.x[0], rs.x[1], rs.x[2], rs.x[3], cx, cy);
+      Hm = refineHomography(L, tpl, Hm, [12, 8, 5]);
+      mark("align");
+      progress("refine"); await paint();
+      let fd = await localRefine(L, tpl, Hm);
+      let quality = matchQuality(L, tpl, Hm, fd), faint = li > 0, Luse = L;
+      if (li === 0 && quality < 0.95) {
+        // printed lines may be faint in part of the photo: try again with a looser line detector
+        const L2 = detectLines(V, page.W, page.H, 0.56, 60, rLine);
+        await tick();
+        const H2 = refineHomography(L2, tpl, Hm, [8, 5]);
+        const fd2 = await localRefine(L2, tpl, H2);
+        const qOld = matchQuality(L2, tpl, Hm, fd), qNew = matchQuality(L2, tpl, H2, fd2);
+        if (qNew > qOld) { Hm = H2; fd = fd2; faint = true; Luse = L2; }
+      }
+      return { Hm, fd, faint, start, k: st.k, quality: shownQuality(Luse, tpl, Hm, fd), contrast: lineContrast(V, page.W, page.H, tpl, Hm, fd), level: li };
+    };
+    let res = null;
+    for (let li = 0; li < LEVELS.length && !(res && res.quality >= 0.5); li++) {
+      if (li) { progress("align"); await paint(); }
+      const L = linesAt(V, page, rLine, LEVELS[li]);
+      if (!li) mark("lines");
       await tick();
-      const r0 = minimize((x) => costH(simH(o.k, x[0], x[1], x[2], x[3], cx, cy), tpl.linePts, nFit, L1, 25),
-        [best.s, best.tx, best.ty, th0], [0.01 * best.s, 4, 4, 0.01]);
-      st = { k: o.k, s: r0.x[0], tx: r0.x[1], ty: r0.x[2], th: r0.x[3] };
-    } else {
-      const coarse = await coarseSearch(L1, tpl);
-      if (coarse.c > 15) throw fail("NO_MATCH", page);
-      st = { k: coarse.k, s: coarse.s, tx: coarse.tx, ty: coarse.ty, th: 0 };
+      let r = await align(L, li);
+      // sensitive line maps contain stray marks: also demand that the photo really is darker along the outline
+      if (r && li > 0 && !opts.start && r.contrast < 0.85) r = null;
+      if (r && (!res || r.quality > res.quality)) res = r;
     }
-    mark("coarse");
-    const rs = minimize((x) => costH(simH(st.k, x[0], x[1], x[2], x[3], cx, cy), tpl.linePts, nFit, L1, 15),
-      [st.s, st.tx, st.ty, st.th], [0.01, 4, 4, 0.004]);
-    const start = { k: st.k, s: rs.x[0], tx: rs.x[1], ty: rs.x[2], th: rs.x[3] };
-    let Hm = simH(st.k, rs.x[0], rs.x[1], rs.x[2], rs.x[3], cx, cy);
-    mark("similarity");
-    Hm = refineHomography(L1, tpl, Hm, [12, 8, 5]);
-    mark("align");
-    progress("refine"); await paint();
-    let fd = await localRefine(L1, tpl, Hm);
-    let quality = matchQuality(L1, tpl, Hm, fd), faint = false, Luse = L1;
-    if (quality < 0.95) {
-      // printed lines may be faint in part of the photo: try again with a looser line detector
-      const L2 = detectLines(V, page.W, page.H, 0.56, 60, rLine);
-      await tick();
-      const H2 = refineHomography(L2, tpl, Hm, [8, 5]);
-      const fd2 = await localRefine(L2, tpl, H2);
-      const qOld = matchQuality(L2, tpl, Hm, fd), qNew = matchQuality(L2, tpl, H2, fd2);
-      if (qNew > qOld) { Hm = H2; fd = fd2; quality = qNew; faint = true; Luse = L2; } else quality = qOld;
-    }
-    quality = shownQuality(Luse, tpl, Hm, fd);
     // an outline that fits this badly means it's the wrong car or the printed lines weren't found
-    if (!opts.start && quality < 0.5) throw fail("NO_MATCH", page);
+    if (!res || (!opts.start && res.quality < 0.5)) throw fail("NO_MATCH", page);
+    const { Hm, fd, faint, start, quality, contrast, level } = res, st = { k: res.k };
     mark("refine");
     progress("fill"); await paint();
     const wrap = makeWrap(img, page, Hm, fd, tpl);
@@ -1289,14 +1348,14 @@ const WrapEngine = (() => {
     progress("save"); await paint();
     const { png, step } = await encodeWithinLimit(wrap.rgba, tpl.w, tpl.h);
     mark("save");
-    return { png, step, quality, faint, page, start, rgba: wrap.rgba, check: wrap.check, plain: wrap.plain, w: tpl.w, h: tpl.h, times, rotation: st.k, manual: !!(opts.corners || opts.start) };
+    return { png, step, quality, faint, page, start, contrast, level, rgba: wrap.rgba, check: wrap.check, plain: wrap.plain, w: tpl.w, h: tpl.h, times, rotation: st.k, manual: !!(opts.corners || opts.start) };
   }
 
   return {
     prepareTemplate, run, encodePNG,
     findPage: (img) => findPage(img), makePage, guessStart, defaultStart, flatPreview,
     fitScale: (page, tpl, k) => fitScale(page.W, page.H, tpl, k),
-    _internal: { findPage, edt, gaussBlur, closeOp, labelCC, dilate },
+    _internal: { findPage, edt, gaussBlur, closeOp, labelCC, dilate, detectLines, flatV, lineRadius },
   };
 })();
 
