@@ -1,5 +1,5 @@
 // Offline support: keeps the app (and any car templates already fetched) available without a connection.
-const CACHE = "wrap-maker-eb8f898ccd";
+const CACHE = "wrap-maker-c5636d7ff7";
 const CORE = ["./", "./index.html", "./manifest.webmanifest", "./icons/icon-192.png", "./icons/icon-512.png", "./icons/apple-touch-icon.png"];
 
 self.addEventListener("install", (e) => {

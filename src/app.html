@@ -585,12 +585,15 @@ code { font: 12.5px ui-monospace, "SF Mono", Menlo, monospace; background: var(-
     state.url = URL.createObjectURL(new Blob([r.png], { type: "image/png" }));
     $("wrapImg").src = state.url;
     const kb = Math.round(r.png.length / 1000), q = Math.round(r.quality * 100);
-    $("lowMatch").hidden = q >= 80; $("fixRow").hidden = q < 80;
+    // a lower score with clearly darker paper all along the fitted outline is still a good fit
+    // (dim or compressed photos, where thin printed lines are hard to pick out)
+    const fitOk = q >= 80 || r.contrast >= 0.9;
+    $("lowMatch").hidden = fitOk; $("fixRow").hidden = !fitOk;
     const items = [
       ["ok", "PNG"],
       ["ok", `${r.w} × ${r.h} px`],
       [r.png.length < 1000000 ? "ok" : "bad", `${kb} KB (limit 1 MB)`],
-      [q >= 90 ? "ok" : q >= 80 ? "warn" : "bad", `Outline match ${q}%`],
+      [q >= 90 ? "ok" : fitOk ? "warn" : "bad", `Outline match ${q}%`],
     ];
     $("checks").innerHTML = "";
     for (const [cls, text] of items) {
